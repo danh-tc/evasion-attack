@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.idea/
+.vscode/
+
+checkpoints/
+data/
+logs/
+results/
+environment_locked.yml
+requirements_locked.txt
+

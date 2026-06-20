@@ -1,0 +1,181 @@
+IMPLEMENTATION AND RESEARCH CHECKLIST
+=====================================
+
+Quy ước: [ ] chưa làm, [~] đang làm, [x] hoàn thành, [!] bị chặn.
+
+0. Research protocol
+--------------------
+[ ] Viết threat model một trang và đóng băng terminology.
+[ ] Chốt epsilon, iterations, step size và random-start policy.
+[ ] Chốt object matching và định nghĩa Object Disappearance Rate.
+[ ] Tạo development/validation/final split manifest cố định.
+[ ] Viết quy tắc strict zero-query và target leakage audit.
+[ ] Lập bảng related work: RaPA, DPA, DWP, T-SEA, CWA, Object-Aware, NumbOD,
+    AFOG, HEAT, Understanding Model Ensemble và TOG.
+[ ] Đọc survey OD attacks arXiv:2408.01934 và ghi lại open-source baselines,
+    metrics, model pairs và các caveat về framework/checkpoint.
+[ ] Đọc digital OD benchmark arXiv:2602.16494 và ghi lại protocol/metrics hữu ích.
+[ ] Với từng baseline, gắn category: strict zero-query, white-box oracle hoặc
+    extra-training; không so chung nếu threat model khác nhau.
+
+1. Environment
+--------------
+[ ] Kiểm tra NVIDIA driver, CUDA và PyTorch compatibility.
+[ ] Tạo environment MMDetection tái lập được.
+[ ] Khóa version Python, PyTorch, MMCV, MMEngine và MMDetection.
+[ ] Lưu environment file và lệnh cài đặt.
+[ ] Chạy MMDetection inference smoke test trên một ảnh.
+[ ] Ghi peak VRAM của Faster R-CNN R50-FPN inference và backward.
+
+2. Dataset and clean evaluation
+-------------------------------
+[ ] Chuẩn bị COCO val2017 và annotations.
+[ ] Tạo development subset 200-500 ảnh bằng seed cố định.
+[ ] Tạo validation subset không overlap development subset.
+[ ] Lưu image IDs vào manifest, không chọn thủ công theo kết quả.
+[ ] Download/check Faster R-CNN R50-FPN checkpoint.
+[ ] Reproduce clean Faster R-CNN metrics.
+[ ] Reproduce clean RetinaNet metrics.
+[ ] Reproduce clean FCOS metrics.
+[ ] Ưu tiên Deformable DETR R50 có sẵn trong MMDetection và đo peak VRAM batch 1.
+[ ] Chỉ thêm RT-DETR sau core experiment; ghi rõ framework, preprocessing và
+    checkpoint khác MMDetection nếu phải dùng implementation bên ngoài.
+[ ] Kiểm tra class IDs, resize và normalization thống nhất.
+
+3. Metrics and matching
+-----------------------
+[ ] Cài GT-to-prediction matching độc lập evaluator.
+[ ] Cài per-object disappearance metric.
+[ ] Cài AP/AP50/AP75 evaluation trên adversarial images.
+[ ] Cài small/medium/large object breakdown.
+[ ] Viết unit tests cho IoU, matching và vanished-object cases.
+[ ] Kiểm tra metric trên synthetic predictions có kết quả biết trước.
+
+4. Baseline attacks
+-------------------
+[ ] Cài Faster R-CNN attack loss adapter.
+[ ] Cài PGD L_inf với projection đúng.
+[ ] Cài MIM/MI-FGSM.
+[ ] Kiểm tra perturbation không vượt epsilon.
+[ ] Chạy white-box attack trên 10 ảnh và inspect output.
+[ ] Chạy development subset trên surrogate.
+[ ] Sinh và lưu adversarial images/config metadata.
+[ ] Đánh giá PGD/MIM zero-query trên RetinaNet.
+[ ] Đánh giá PGD/MIM zero-query trên FCOS.
+[ ] Đánh giá PGD/MIM zero-query trên DETR-family target.
+[ ] Reproduce NumbOD trên surrogate và xác định chính xác thông tin model nó dùng.
+[ ] Đánh giá NumbOD zero-query trên RetinaNet/FCOS/DETR-family bằng adversarial
+    images chỉ được craft trên Faster R-CNN surrogate.
+[ ] Kiểm tra AFOG code/framework compatibility; nếu chạy được, báo cáo white-box
+    oracle riêng và thử surrogate-crafted transfer như một experiment tách biệt.
+[ ] Đo runtime, peak VRAM và gradient evaluations.
+
+5. RaPA-OD adaptation
+---------------------
+[ ] Đọc paper và clone/inspect RaPA code gốc: https://github.com/molarsu/RaPA.
+[ ] Xác nhận chính xác global/structured/unstructured pruning semantics của RaPA.
+[ ] Ghi mapping từ classification objective/modules sang OD objective/modules.
+[ ] Xác định parameter types được phép prune.
+[ ] Loại bias/norm khỏi pruning mặc định và ablate sau nếu cần.
+[ ] Cài reversible mask không sửa checkpoint gốc.
+[ ] Test forward/backward sau pruning.
+[ ] Sample mask mới theo iteration với seed kiểm soát được.
+[ ] Cài sequential gradient accumulation cho S = 2.
+[ ] Sweep pruning rate thô trên development subset.
+[ ] Ablate backbone, FPN, RPN, cls head và box head.
+[ ] So sánh naive RaPA-OD với MIM equal-iteration.
+[ ] So sánh naive RaPA-OD với MIM equal-compute.
+
+6. Observation instrumentation
+------------------------------
+[ ] Draft formal Assignment Stability Score: matching algorithm, IoU/score/class
+    conditions, unmatched-object handling và stability threshold.
+[ ] Review definition với advisor/collaborator trước khi implement experiments lớn.
+[ ] Xác nhận score chỉ dùng surrogate/GT, không phụ thuộc target model output.
+[ ] Định nghĩa clean prediction fidelity score.
+[ ] Log GT/prediction correspondence cho model gốc và pruned variants.
+[ ] Log gradient norm, cosine similarity và variance.
+[ ] Log per-object stability theo object size.
+[ ] Log pruning mask/module/rate/seed/config hash.
+[ ] Kiểm tra log không lưu target feedback trong attack loop.
+
+7. Observation study and GO/NO-GO
+---------------------------------
+[ ] Chạy pilot 10-20 ảnh với pruning sweep tới 50% trên Faster R-CNN.
+[ ] Đo phần trăm GT objects còn valid match theo pruning rate.
+[ ] Đo IoU/score drop của matched predictions theo pruning rate.
+[ ] Tìm ngưỡng gradient cosine similarity giảm đột ngột nếu có.
+[ ] Quyết định có đủ signal để chạy observation study đầy đủ hay không.
+[ ] Chạy ít nhất 3 seeds trên development subset.
+[ ] Vẽ pruning rate vs assignment stability.
+[ ] Vẽ pruning rate vs gradient diversity.
+[ ] Vẽ assignment stability vs transfer ASR.
+[ ] Phân tích partial correlation khi control pruning rate/diversity.
+[ ] Phân tích theo module và object size.
+[ ] Lặp lại observation trên ít nhất hai target families.
+[ ] Ghi kết luận GO hoặc NO-GO trước khi xây full method.
+
+8. AS-RaPA-OD core method
+-------------------------
+[ ] Cài stability-aware soft weighting.
+[ ] Cài hard filtering làm ablation.
+[ ] Xử lý trường hợp không mask nào đạt stability threshold.
+[ ] Chuẩn hóa per-mask gradient trước aggregation.
+[ ] Tích hợp momentum và L_inf projection.
+[ ] Viết unit/integration tests cho mask weighting.
+[ ] Chạy sanity check white-box trên 10 ảnh.
+[ ] Tune chỉ trên surrogate/development-validation protocol.
+[ ] Đóng băng final hyperparameters và lưu config hash.
+
+9. Core experiments
+-------------------
+[ ] Faster R-CNN -> RetinaNet.
+[ ] Faster R-CNN -> FCOS.
+[ ] Faster R-CNN -> DETR-family.
+[ ] PGD/MIM/Input Diversity baselines.
+[ ] Naive RaPA-OD baseline.
+[ ] DWP/T-SEA/CWA/Object-Aware/AFOG baseline nào tương thích.
+[ ] NumbOD strict zero-query transfer baseline.
+[ ] DPA adaptation chỉ khi có thể giữ compute/threat model công bằng; nếu không,
+    đưa vào conceptual comparison và ghi rõ lý do không chạy.
+[ ] AFOG white-box oracle/reference row tách khỏi zero-query ranking.
+[ ] Equal-iteration table.
+[ ] Equal-compute table.
+[ ] Runtime/VRAM table.
+[ ] Per-size and per-class analysis.
+[ ] Mean/std/confidence intervals.
+
+10. Ablations
+-------------
+[ ] Mask count S = 1, 2, 3.
+[ ] Pruning-rate sweep.
+[ ] Module-wise pruning.
+[ ] Random vs fidelity vs assignment vs diversity weighting.
+[ ] Soft weighting vs hard filtering.
+[ ] Assignment stability with/without gradient diversity.
+[ ] Momentum/input diversity compatibility.
+[ ] GT-informed vs pseudo-label setting.
+[ ] Fixed global vs branch-wise rate.
+[ ] Adaptive branch pruning, chỉ sau khi core method được xác nhận.
+
+11. Full evaluation and reproducibility
+---------------------------------------
+[ ] Audit rằng target results chưa được dùng để tune.
+[ ] Chạy final frozen configuration trên full COCO val2017.
+[ ] Lưu exact checkpoints và config identifiers.
+[ ] Lưu all seeds, image manifests và command lines.
+[ ] Export raw per-image/per-object results.
+[ ] Re-run một experiment từ môi trường sạch.
+[ ] Kiểm tra bảng/figure có thể tạo lại từ raw logs.
+
+12. Paper preparation
+---------------------
+[ ] Viết Introduction quanh observation, không quanh danh sách module.
+[ ] Viết related-work matrix và novelty boundary với RaPA/DWP/T-SEA.
+[ ] Viết formal threat model.
+[ ] Viết method equations và algorithm pseudocode.
+[ ] Viết observation section trước main results.
+[ ] Hoàn thiện main result, equal-compute và ablation tables.
+[ ] Viết limitations và responsible research statement.
+[ ] Internal review: novelty, leakage, metric fairness và reproducibility.
+[ ] Kiểm tra mọi claim trong abstract có bằng chứng trực tiếp.

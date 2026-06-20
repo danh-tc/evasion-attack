@@ -1,0 +1,279 @@
+RESEARCH PLAN
+=============
+
+Tên tạm thời
+------------
+Assignment-Stable Random Parameter Pruning for Transferable Object Detection Attacks
+
+Mục tiêu xuất bản
+----------------
+- Hướng tới CVPR 2027.
+- Paper theo hướng insight-driven, không chỉ là áp dụng RaPA vào object detection.
+- Đóng góp trung tâm phải gồm: hiện tượng mới, phân tích có kiểm chứng, phương pháp
+  được suy ra từ hiện tượng và đánh giá zero-query công bằng.
+
+Positioning với literature gần nhất:
+- RaPA (CVPR 2026) nghiên cứu targeted transfer trên image classification. Paper
+  này không chỉ thay loss của RaPA, mà xác định và xử lý failure mode mới sinh ra
+  từ object-prediction assignment trong detection.
+- DPA (CVPR 2025) tạo parameter diversity cho face recognition bằng optimization
+  và intermediate checkpoints; đây là conceptual neighbor nhưng cần training thêm,
+  khác với single-pretrained-surrogate setting của paper này.
+- Understanding Model Ensemble (ICML 2025) chỉ ra vulnerability-diversity trade-off
+  trong classification. Paper này kiểm tra giới hạn của diversity khi output là
+  một tập object có assignment thay đổi, thay vì một class label duy nhất.
+- Survey/benchmark OD 2024 và benchmark digital OD 2026 được dùng để chuẩn hóa
+  metric, model pair và diễn giải cross-architecture transfer.
+- RaPA-OD adaptation là technical/empirical contribution đầu tiên và là phương
+  tiện để bộc lộ failure mode; novelty chính vẫn là assignment-corrupting diversity
+  cùng phương pháp assignment-stable, không phải việc port RaPA đơn thuần.
+
+1. Câu hỏi nghiên cứu và hypothesis
+-----------------------------------
+
+Câu hỏi:
+Random parameter pruning tạo model diversity, nhưng diversity nào thực sự giúp
+transferable object detection attack?
+
+Hypothesis chính:
+Trong object detection, pruning có thể làm thay đổi hoặc phá vỡ correspondence
+giữa ground-truth object và prediction/proposal/query. Khi đó, gradient giữa các
+surrogate variants đa dạng nhưng không còn tối ưu cùng một object-level objective.
+Đây là "assignment-corrupting diversity" và có thể làm giảm transferability.
+
+Hypothesis kiểm chứng được:
+- Pruning rate tăng thường làm gradient diversity tăng.
+- Assignment stability giảm khi pruning quá mạnh hoặc prune sai module.
+- Transfer ASR không tăng đơn điệu theo gradient diversity.
+- Với cùng compute budget, các mask vừa đủ đa dạng và giữ assignment ổn định sẽ
+  transfer tốt hơn random masks không kiểm soát.
+
+Claim dự kiến, chỉ sử dụng nếu kết quả thực nghiệm hỗ trợ:
+Model diversity không mặc nhiên cải thiện transferable object detection attacks.
+Assignment-stable model diversification giúp loại bỏ gradient diversity giả và
+tìm perturbation có khả năng transfer tốt hơn giữa các họ detector.
+
+2. Threat model đã chốt
+-----------------------
+- Digital, imperceptible, full-image perturbation.
+- Untargeted object hiding đối với tất cả ground-truth objects.
+- Đo kết quả theo từng object và tổng hợp theo ảnh/dataset.
+- Chuẩn chính: L_inf; khởi đầu với epsilon = 8/255.
+- Single pretrained surrogate; không train thêm surrogate hoặc pruning policy.
+- Attacker được dùng COCO ground-truth khi sinh perturbation trong setting chính.
+- Setting phụ: label-free, dùng clean surrogate predictions làm pseudo labels.
+- Strict zero-query: target model không được dùng để chọn loss, hyperparameter,
+  pruning rate, checkpoint hoặc stopping criterion.
+- Tất cả cấu hình phải được khóa trước khi chạy target models.
+
+3. Phạm vi và tài nguyên
+-----------------------
+- Framework: MMDetection.
+- Phần cứng: một RTX 5060 8 GB VRAM, 32 GB RAM.
+- Batch size 1; sample pruning masks tuần tự; không giữ nhiều detector trên GPU.
+- Development set: COCO val2017 subset cố định 200-500 ảnh.
+- Validation set: một subset tách biệt, chỉ đánh giá trên surrogate/held-out
+  surrogate; không dùng target chính để tune.
+- Final evaluation: COCO val2017 đầy đủ nếu thời gian compute cho phép.
+
+Model rollout:
+- Surrogate đầu tiên: Faster R-CNN R50-FPN.
+- Target CNN đầu tiên: RetinaNet R50-FPN.
+- Target khác cơ chế: FCOS R50-FPN.
+- Target Transformer chính: Deformable DETR R50 trong MMDetection, vì có config,
+  checkpoint và evaluator cùng framework; target chỉ inference nên batch 1 phù hợp
+  8 GB VRAM cần được xác nhận bằng smoke test.
+- RT-DETR là extension sau: MMDetection 3.3 chưa tích hợp chính thức, nên dùng nó
+  sớm sẽ kéo thêm framework/preprocessing và làm yếu tính kiểm soát của thí nghiệm.
+- Mở rộng sau: YOLO, backbone khác, Transformer surrogate.
+
+Không đưa targeted misclassification, physical patch hoặc box shifting vào claim
+chính. Chúng chỉ là future work hoặc extension sau khi paper core đã hoàn chỉnh.
+
+4. Định nghĩa objective và evaluation unit
+------------------------------------------
+- Attack toàn bộ GT objects trong ảnh.
+- Với mỗi GT object, match prediction bằng class/score và IoU theo protocol cố định.
+- Object-hiding objective ưu tiên làm giảm confidence của prediction được match.
+- Phải định nghĩa hành vi khi prediction biến mất hoặc matching thay đổi giữa bước.
+- Loss adapter được tách theo detector, nhưng evaluation protocol phải thống nhất.
+- Không dùng một công thức objectness chung cho mọi detector vì Faster R-CNN,
+  RetinaNet và DETR có output/loss structure khác nhau.
+
+5. Baseline pipeline
+--------------------
+
+Giai đoạn A - Reproducible detector evaluation:
+- Cài đặt môi trường MMDetection và khóa version.
+- Reproduce clean COCO metrics của từng pretrained checkpoint.
+- Chuẩn hóa preprocessing, image scale, class mapping và evaluator.
+
+Giai đoạn B - Attack baseline:
+- PGD detection attack.
+- MI-FGSM/MIM detection attack.
+- Input diversity kết hợp MIM nếu pipeline ổn định.
+- Báo cáo white-box surrogate và zero-query targets.
+
+Giai đoạn C - RaPA-OD adaptation và failure analysis:
+- Đọc code/paper RaPA gốc và giữ đúng pruning semantics trước khi adapt.
+- Cài RaPA-OD với fixed pruning probability.
+- Sample mask mới ở mỗi iteration.
+- Bắt đầu S = 2 masks, xử lý tuần tự.
+- So sánh unstructured weight pruning theo module: backbone, FPN, RPN,
+  classification head và box regression head.
+- Không mặc định head phải prune mạnh hơn backbone; để dữ liệu quyết định.
+- Ghi rõ những thay đổi bắt buộc từ classification sang detection: multi-object
+  objective, module taxonomy, matching/assignment và multi-head gradient.
+- Trình bày RaPA-OD như empirical adaptation/foundation, nhưng không dùng riêng
+  adaptation này làm claim novelty chính.
+
+6. Milestone khoa học bắt buộc: observation study
+------------------------------------------------
+
+Với mỗi image, iteration, mask và pruning configuration, log:
+- Assignment Stability Score.
+- Clean prediction fidelity của pruned model so với model gốc.
+- Gradient cosine similarity giữa masks và với model gốc.
+- Gradient norm và variance.
+- Số GT objects còn correspondence hợp lệ.
+- White-box loss/ASR và black-box object-hiding ASR.
+
+Phân tích:
+- Tương quan assignment stability với transfer ASR/AP drop.
+- Tương quan gradient diversity với transfer khi control assignment stability.
+- Kết quả theo small/medium/large objects.
+- Kết quả theo module và pruning rate.
+- Vẽ stability-transfer scatter plot, gradient-similarity plot và pruning curve.
+
+GO/NO-GO:
+- GO nếu assignment stability dự đoán transfer tốt hơn hoặc bổ sung thông tin rõ
+  ràng ngoài gradient diversity, lặp lại trên nhiều image/model pair/seed.
+- NO-GO nếu correlation không ổn định hoặc reweight theo stability không cải thiện
+  transfer dưới equal-compute budget. Khi đó không tiếp tục claim hiện tại; xem xét
+  chuyển sang object-wise gradient conflict hoặc scale-aware transfer.
+
+Pilot trước GO/NO-GO đầy đủ, dùng 10-20 ảnh và một surrogate:
+- Ở các pruning rate tăng dần, đặc biệt kiểm tra vùng tới 50%, bao nhiêu phần trăm
+  GT objects mất valid prediction match?
+- Pruning rate có tương quan với IoU/score drop của matched predictions không?
+- Gradient cosine similarity với original model có giảm đột ngột tại ngưỡng nào?
+- Chỉ mở rộng compute nếu pilot cho signal lặp lại giữa ảnh và seed.
+- Mốc quản trị đề xuất: hoàn thành pilot và quyết định GO/NO-GO trước cuối Q3/2026;
+  đây là research gate, không phải deadline dùng để ép một kết luận dương tính.
+
+7. Phương pháp đề xuất
+----------------------
+
+Tên tạm thời: Assignment-Stable RaPA for Object Detection (AS-RaPA-OD).
+
+Mỗi attack iteration:
+1. Sample S model pruning masks từ một pretrained surrogate.
+2. Đo prediction/assignment consistency giữa model gốc và từng pruned model.
+3. Loại hoặc giảm trọng số mask phá vỡ quá nhiều object correspondence.
+4. Tính object-hiding gradient riêng cho các mask hợp lệ.
+5. Chuẩn hóa và tổng hợp gradient bằng stability-aware weights.
+6. Cập nhật perturbation bằng momentum và project về L_inf ball.
+
+Thiết kế tối giản trước:
+- Fixed global pruning rate.
+- Weight mask bằng Assignment Stability Score.
+- Không học policy và không truy cập target.
+
+Chỉ thêm branch-adaptive pruning nếu bản tối giản đã hoạt động:
+- Điều chỉnh p_l theo clean fidelity, assignment stability và useful gradient
+  diversity trên surrogate.
+- Giới hạn p_min/p_max và tổng pruning budget.
+- Tránh heuristic cố định như "backbone nhẹ, head mạnh".
+- Branch-adaptive là contribution phụ, không phải novelty duy nhất.
+
+8. Baselines và so sánh công bằng
+---------------------------------
+
+Core baselines:
+- PGD.
+- MI-FGSM/MIM.
+- Input Diversity attack.
+- Naive random parameter pruning/RaPA-OD.
+- NumbOD (AAAI 2025): ưu tiên OD-specific digital reference; để vào zero-query
+  transfer table chỉ khi perturbation được tạo hoàn toàn trên surrogate.
+- Diversified Weight Pruning nếu có thể chuyển đúng setting.
+- T-SEA components tương thích digital full-image attack.
+- CWA hoặc Object-Aware Attack nếu reproduce được.
+- DPA là conceptual/optional baseline vì bản gốc cần optimize/train parameter
+  variants và thuộc face recognition; không so trực tiếp nếu compute/threat model
+  không tương đương.
+- HEAT-style consensus aggregation là optional ablation nếu SVD với S <= 3 có ý
+  nghĩa; không bắt buộc thành full baseline classification.
+- AFOG là white-box oracle/reference khi dùng victim gradients, không xếp ngang
+  strict zero-query methods. Chỉ xếp vào transfer table nếu craft trên surrogate.
+
+Mỗi bảng kết quả cần hai chế độ:
+- Equal attack iterations.
+- Equal forward/backward compute budget.
+
+Báo cáo thêm runtime, peak VRAM và số gradient evaluations. Không tuyên bố hiệu quả
+nếu improvement chủ yếu đến từ việc dùng nhiều forward/backward hơn baseline.
+
+9. Metrics
+----------
+- Clean AP, AP50, AP75 của từng detector.
+- Adversarial AP, AP50, AP75 và absolute AP drop.
+- Object Disappearance Rate/ASR theo GT object.
+- ASR theo small, medium, large object.
+- Perturbation L_inf thực tế.
+- White-box và black-box kết quả tách riêng.
+- Mean, standard deviation và confidence interval trên ít nhất 3 seeds cho subset.
+- Runtime/image, peak VRAM và gradient evaluation count.
+
+10. Experimental matrix
+-----------------------
+
+Core paper:
+- Faster R-CNN surrogate -> RetinaNet target.
+- Faster R-CNN surrogate -> FCOS target.
+- Faster R-CNN surrogate -> DETR-family target.
+
+Mở rộng sau khi core ổn định:
+- CNN surrogate -> CNN targets với backbone khác.
+- CNN surrogate -> Transformer targets.
+- Transformer surrogate -> CNN targets.
+- Transformer surrogate -> Transformer targets.
+- Label-informed -> label-free attack.
+
+11. Ablation bắt buộc
+---------------------
+- S = 1, 2, 3 masks; ưu tiên S <= 3 vì VRAM/compute.
+- Pruning rate: coarse sweep trước, fine sweep quanh vùng tốt sau.
+- Random weighting vs fidelity-only vs assignment-only vs gradient-diversity-only.
+- Assignment stability + gradient diversity.
+- Hard mask filtering vs soft weighting.
+- Fixed global rate vs branch-wise fixed rate.
+- Adaptive branch rate chỉ khi được triển khai.
+- Prune từng functional module.
+- Có/không momentum và input diversity.
+- GT labels vs surrogate pseudo labels.
+- Equal-iteration vs equal-compute comparison.
+
+12. Rủi ro và phương án xử lý
+-----------------------------
+- 8 GB VRAM: dùng batch 1, sequential masks, mixed precision khi gradient ổn định,
+  resize development images và evaluate từng model riêng.
+- MMDetection version incompatibility: khóa Python/PyTorch/MMCV/MMDetection/CUDA và
+  lưu environment file ngay khi baseline chạy được.
+- Detector loss không thống nhất: dùng adapter riêng, giữ evaluator chung.
+- Target leakage: lưu config hash trước final evaluation; target logs không dùng tune.
+- Observation yếu: áp dụng GO/NO-GO thay vì tiếp tục thêm module để cứu method.
+- Quá nhiều baseline/model: ưu tiên experimental depth trên 3 target khác cơ chế.
+- Baseline khác threat model: tách zero-query, white-box oracle và extra-training
+  thành các block rõ ràng; không dùng một ranking chung.
+
+13. Tiêu chuẩn paper-ready
+--------------------------
+- Observation lặp lại trên ít nhất hai surrogate-target families.
+- Method thắng naive RaPA và MIM dưới equal-compute budget.
+- Method cạnh tranh với OD-specific digital baseline NumbOD khi cả hai được chạy
+  dưới cùng strict zero-query protocol, hoặc giải thích rõ nếu không tương thích.
+- Cross-architecture transfer có improvement ổn định, không chỉ một checkpoint.
+- Có ablation chứng minh assignment stability là thành phần tạo improvement.
+- Protocol, code, configs, seeds và adversarial sample list có thể reproduce.
+- Claim trong abstract không vượt quá bằng chứng thực nghiệm.
