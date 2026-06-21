@@ -1,0 +1,29 @@
+# ── Pip global options ────────────────────────────────────────────────────────
+# These make `pip install -r requirements.txt` find all wheels without extra flags.
+--extra-index-url https://download.pytorch.org/whl/cu121
+--find-links https://download.openmmlab.com/mmcv/dist/cu121/torch2.1.0/index.html
+
+# ── PyTorch (CUDA 12.1 wheels) ────────────────────────────────────────────────
+torch==2.1.2+cu121
+torchvision==0.16.2+cu121
+
+# ── Numerics — pin numpy<2 before anything else can pull in 2.x ───────────────
+numpy==1.26.4
+# mmengine requires opencv-python>=3; pin <4.9 which is the last series
+# that doesn't declare numpy>=2 as a hard dependency.
+opencv-python==4.8.1.78
+
+# ── OpenMMLab ─────────────────────────────────────────────────────────────────
+mmengine==0.10.4
+mmcv==2.1.0
+mmdet==3.3.0
+
+# ── Research utilities ────────────────────────────────────────────────────────
+scipy>=1.12,<2
+pandas>=2.2,<3
+matplotlib>=3.8,<4
+seaborn>=0.13
+tqdm>=4.66
+pycocotools>=2.0.7
+ipython>=8.20
+jupyter>=1.0
