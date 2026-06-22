@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(conda activate *)",
+      "Bash(python /workspace/evasion-attack/scripts/check_env.py)",
+      "Bash(python3 /workspace/evasion-attack/scripts/check_env.py)",
+      "Bash(nvidia-smi)",
+      "Bash(bash /workspace/evasion-attack/setup_env.sh)",
+      "Bash(wget -q \"https://download.openmmlab.com/mmcv/dist/cu121/torch2.2.0/mmcv-2.1.0-cp310-cp310-manylinux1_x86_64.whl\" -O /tmp/mmcv-2.1.0.whl)",
+      "Read(//tmp/**)",
+      "Bash(curl -s \"https://download.openmmlab.com/mmcv/dist/cu121/torch2.2.0/index.html\")",
+      "Read(//usr/bin/**)",
+      "Bash(python3 -c \"import sys; print\\(sys.version\\)\")",
+      "Bash(apt-get install *)",
+      "Bash(rm -rf /workspace/evasion-venv && bash /workspace/evasion-attack/setup_env.sh 2>&1)",
+      "Bash(chmod +x /workspace/evasion-attack/scripts/download_coco.sh)",
+      "Bash(bash /workspace/evasion-attack/scripts/download_coco.sh)",
+      "Bash(wget -c --show-progress -q \"http://images.cocodataset.org/zips/val2017.zip\" -O /workspace/evasion-attack/data/coco/val2017.zip)",
+      "Bash(unzip -q /workspace/evasion-attack/data/coco/val2017.zip -d /workspace/evasion-attack/data/coco/)",
+      "Bash(wget -q --show-progress \"http://images.cocodataset.org/annotations/annotations_trainval2017.zip\" -O /workspace/evasion-attack/data/coco/annotations.zip)",
+      "Bash(unzip -q /workspace/evasion-attack/data/coco/annotations.zip -d /workspace/evasion-attack/data/coco/)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git config *)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); [print\\(k, d[k]['wb_asr'], d[k]['trf_asr']\\) for k in d]\")"
+    ],
+    "additionalDirectories": [
+      "/workspace/evasion-venv"
+    ]
+  }
+}

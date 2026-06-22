@@ -96,6 +96,7 @@ def pgd_attack(
     momentum: float = 0.9,
     seed_base: int = 0,
     device: str = "cuda:0",
+    aux_model=None,
 ) -> np.ndarray:
     """MIM-style PGD.  Inputs and outputs are uint8 BGR HWC arrays.
 
@@ -103,49 +104,62 @@ def pgd_attack(
         img_bgr:      Clean image (uint8 BGR, already resized to model input).
         epsilon_px:   L_inf budget in pixel units (e.g. 8 for 8/255 attack).
         step_size_px: PGD step size in pixel units.
-        n_masks:      Masks to average gradients over per iteration.
+        n_masks:      Masks to average gradients over per iteration (per model).
         pruning_scope/rate: Optional scope/rate for RaPA-OD.
+        aux_model:    Second surrogate for cross-backbone gradient averaging
+                      (Direction A). When provided, each step averages gradients
+                      from both model and aux_model with independent pruning masks.
 
     Returns:
         Adversarial image as uint8 BGR numpy array.
     """
     model.eval()
+    if aux_model is not None:
+        aux_model.eval()
     eps_n  = px_to_norm(epsilon_px)
     step_n = px_to_norm(step_size_px)
 
-    # Canonical normalised image (no grad)
     img_t = bgr_to_tensor(img_bgr, device)
-
-    # Random start within epsilon ball
     delta = torch.empty_like(img_t).uniform_(-eps_n, eps_n)
     g_mom = torch.zeros_like(img_t)
+
+    n_sources = 2 if aux_model is not None else 1
 
     for step in range(n_iters):
         grad_accum = torch.zeros_like(img_t)
 
         for mask_idx in range(n_masks):
+            # Primary surrogate gradient
             seed  = seed_base + step * n_masks + mask_idx
             x_adv = (img_t + delta).requires_grad_(True)
-
             ctx = (
-                temporary_random_pruning(
-                    model, pruning_rate, scope=pruning_scope, seed=seed
-                )
-                if pruning_scope and pruning_rate > 0
-                else nullcontext()
+                temporary_random_pruning(model, pruning_rate, scope=pruning_scope, seed=seed)
+                if pruning_scope and pruning_rate > 0 else nullcontext()
             )
             with ctx:
                 loss = rpn_suppression_loss(model, x_adv)
                 loss.backward()
-
             grad_accum = grad_accum + x_adv.grad.detach()
             model.zero_grad()
 
-        grad_accum = grad_accum / n_masks
+            # Auxiliary surrogate gradient (cross-backbone)
+            if aux_model is not None:
+                seed_aux = seed_base + 10000 + step * n_masks + mask_idx
+                x_adv2   = (img_t + delta).requires_grad_(True)
+                ctx2 = (
+                    temporary_random_pruning(aux_model, pruning_rate, scope=pruning_scope, seed=seed_aux)
+                    if pruning_scope and pruning_rate > 0 else nullcontext()
+                )
+                with ctx2:
+                    loss2 = rpn_suppression_loss(aux_model, x_adv2)
+                    loss2.backward()
+                grad_accum = grad_accum + x_adv2.grad.detach()
+                aux_model.zero_grad()
 
-        # MI-FGSM: unit-normalise then momentum
-        grad_norm  = grad_accum.abs().mean().clamp_min(1e-12)
-        g_mom      = momentum * g_mom + grad_accum / grad_norm
+        grad_accum = grad_accum / (n_masks * n_sources)
+
+        grad_norm = grad_accum.abs().mean().clamp_min(1e-12)
+        g_mom     = momentum * g_mom + grad_accum / grad_norm
 
         with torch.no_grad():
             delta = delta - step_n * g_mom.sign()
