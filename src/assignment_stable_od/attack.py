@@ -89,19 +89,22 @@ def osfd_feature_loss(
 ) -> torch.Tensor:
     """OSFD-style backbone feature distortion loss (RaPA+OSFD combination).
 
-    Suppresses significant features of adv image relative to amplified clean
-    features. Operates at backbone level only — architecture-agnostic, no RPN
-    head required → works on DINO/DETR targets that lack rpn_head.
+    Maximises L2 distance between adversarial and clean backbone features.
+    Operates at backbone level only — architecture-agnostic, no RPN head
+    required → works on DINO/DETR targets that lack rpn_head.
 
     clean_feats should be pre-computed once before the attack loop with
     torch.no_grad() to avoid storing the computation graph.
+
+    Note: k is retained for API compatibility but unused; the objective is
+    to maximise ||f_adv - f_clean||, not to target k*f_clean.
     """
     feats_adv = model.backbone(img_adv_t)
-    loss = sum(
-        F.mse_loss(f_adv, k * f_clean.detach())
+    # Negate MSE so that minimising the loss maximises feature distortion.
+    return -sum(
+        F.mse_loss(f_adv, f_clean.detach())
         for f_adv, f_clean in zip(feats_adv, clean_feats)
     )
-    return loss
 
 
 # ── PGD with optional pruning diversity ───────────────────────────────────────

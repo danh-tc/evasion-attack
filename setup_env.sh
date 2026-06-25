@@ -10,7 +10,22 @@ VENV_DIR="/workspace/evasion-venv"
 TORCH_INDEX="https://download.pytorch.org/whl/cu121"
 MMCV_INDEX="https://download.openmmlab.com/mmcv/dist/cu121/torch2.1.0/index.html"
 
+# ── 0. Ensure Python 3.10 is available ───────────────────────────────────────
+echo "===== Checking Python 3.10 ====="
+if ! command -v "$PYTHON" &>/dev/null; then
+    echo "python3.10 not found — installing..."
+    apt-get update -qq
+    apt-get install -y software-properties-common
+    add-apt-repository -y ppa:deadsnakes/ppa
+    apt-get update -qq
+    apt-get install -y python3.10 python3.10-dev
+    echo "python3.10 installed"
+else
+    echo "python3.10 found: $($PYTHON --version)"
+fi
+
 # ── 1. Diagnostics ────────────────────────────────────────────────────────────
+echo ""
 echo "===== System diagnostics ====="
 nvidia-smi
 echo ""
@@ -20,11 +35,22 @@ nvcc --version 2>/dev/null || echo "[WARN] nvcc not found"
 # ── 2. Create venv ────────────────────────────────────────────────────────────
 echo ""
 echo "===== Creating venv at $VENV_DIR ====="
-if [ -d "$VENV_DIR" ]; then
+if [ -d "$VENV_DIR" ] && [ -f "$VENV_DIR/bin/activate" ]; then
     echo "Venv already exists — skipping creation"
 else
-    "$PYTHON" -m venv "$VENV_DIR"
-    echo "Venv created"
+    # Remove any partial/broken venv before recreating
+    [ -d "$VENV_DIR" ] && echo "Removing incomplete venv..." && rm -rf "$VENV_DIR"
+    # Use --without-pip because ensurepip may not be available on this system;
+    # we bootstrap pip manually via get-pip.py below.
+    "$PYTHON" -m venv --without-pip "$VENV_DIR"
+    echo "Venv created (no pip yet)"
+
+    # shellcheck source=/dev/null
+    source "$VENV_DIR/bin/activate"
+
+    echo "Bootstrapping pip via get-pip.py..."
+    curl -fsSL https://bootstrap.pypa.io/get-pip.py | python
+    echo "pip bootstrapped: $(pip --version)"
 fi
 # shellcheck source=/dev/null
 source "$VENV_DIR/bin/activate"

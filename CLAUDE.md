@@ -132,6 +132,34 @@ AUX_SURROGATE = Mask R-CNN Swin-T  # loaded only when cross_backbone=True config
 
 ## Confirmed Results
 
+### 100-ảnh run — 100 ảnh, 40 iters, ε=8px, 4 configs × 9 targets (results_100img.json)
+
+Clean mAP (AP@[.5:.95]): surrogate=0.479, R50=0.492, R101=0.503, FCOS=0.480, DefDETR=0.569, YOLOv3=0.408, YOLOX=0.617, Swin-T=0.551, DINO-R50=0.607, DINO-SwinL=0.676
+
+**ASR (object disappearance):**
+
+| Config | WB | R50 | R101 | FCOS | DefDETR | YOLOv3 | YOLOX | Swin-T | DINO-R50 | DINO-SwinL |
+|---|---|---|---|---|---|---|---|---|---|---|
+| PGD | 0.471 | 0.372 | 0.182 | 0.142 | 0.278 | 0.092 | 0.088 | 0.092 | 0.301 | 0.035 |
+| RaPA-OD | 0.767 | 0.693 | 0.344 | 0.422 | 0.657 | 0.163 | 0.148 | 0.153 | 0.655 | 0.040 |
+| RaPA+OSFD | **0.934** | **0.920** | **0.776** | **0.798** | **0.923** | **0.433** | **0.449** | **0.384** | **0.946** | **0.107** |
+| RaPA-CB | 0.750 | 0.688 | 0.349 | 0.412 | 0.614 | 0.177 | 0.138 | 0.342 | 0.596 | 0.058 |
+
+**mAP drop (∆AP):**
+
+| Config | WB | R50 | R101 | FCOS | DefDETR | YOLOv3 | YOLOX | Swin-T | DINO-R50 | DINO-SwinL |
+|---|---|---|---|---|---|---|---|---|---|---|
+| PGD | 0.229 | 0.154 | 0.065 | 0.074 | 0.128 | 0.037 | 0.028 | 0.034 | 0.140 | 0.007 |
+| RaPA-OD | 0.390 | 0.343 | 0.167 | 0.177 | 0.346 | 0.057 | 0.064 | 0.068 | 0.366 | 0.005 |
+| RaPA+OSFD | **0.472** | **0.476** | **0.439** | **0.400** | **0.553** | **0.192** | **0.276** | **0.265** | **0.585** | **0.057** |
+| RaPA-CB | 0.377 | 0.329 | 0.146 | 0.181 | 0.320 | 0.064 | 0.057 | 0.171 | 0.320 | 0.015 |
+
+Key observations:
+- RaPA+OSFD dominates: R50/DefDETR/DINO-R50 mAP → ~0.01 (near zero, 96–97% relative drop)
+- RaPA-CB: Swin-T ASR 0.153→0.342 (+2.5×) vs RaPA-OD; small trade-off on ResNet targets
+- DINO-Swin-L near-immune to all methods (best drop only 0.057 from RaPA+OSFD)
+- Backbone-family tiers confirmed at 100-image scale
+
 ### Main run — 300 ảnh, 40 iters, ε=8px, 4 targets (results_dev300.json)
 
 | Target | Clean AP | PGD | RaPA-OD | ∆AP |
