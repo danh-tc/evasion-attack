@@ -38,11 +38,13 @@ COCO_SCORE_TH = 0.05   # low threshold for COCO mAP collection
 
 CONFIGS = [
     dict(name="pgd_baseline",      label="PGD baseline",
-         n_masks=1, scope=None,       rate=0.0,  cross_backbone=False),
+         n_masks=1, scope=None,       rate=0.0,  cross_backbone=False, use_osfd=False),
     dict(name="rapa_backbone_005", label="RaPA-OD backbone p=0.05",
-         n_masks=2, scope="backbone", rate=0.05, cross_backbone=False),
+         n_masks=2, scope="backbone", rate=0.05, cross_backbone=False, use_osfd=False),
+    dict(name="rapa_osfd_005",     label="RaPA+OSFD backbone p=0.05",
+         n_masks=2, scope="backbone", rate=0.05, cross_backbone=False, use_osfd=True),
     dict(name="rapa_cb_005",       label="RaPA-CB (R50+Swin) p=0.05",
-         n_masks=1, scope="backbone", rate=0.05, cross_backbone=True),
+         n_masks=1, scope="backbone", rate=0.05, cross_backbone=True,  use_osfd=False),
 ]
 
 # Auxiliary surrogate for cross-backbone Direction A (loaded lazily in main)
@@ -322,6 +324,7 @@ def main():
                 pruning_scope=cfg["scope"], pruning_rate=cfg["rate"],
                 momentum=args.momentum, device=DEVICE,
                 aux_model=aux_surrogate if cfg.get("cross_backbone") else None,
+                use_osfd=cfg.get("use_osfd", False),
             )
             img_adv = adversarial_at_orig_scale(img_adv_resized, img_bgr, img_orig)
 

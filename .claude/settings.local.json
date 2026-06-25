@@ -22,7 +22,19 @@
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
       "Bash(git config *)",
-      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); [print\\(k, d[k]['wb_asr'], d[k]['trf_asr']\\) for k in d]\")"
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); [print\\(k, d[k]['wb_asr'], d[k]['trf_asr']\\) for k in d]\")",
+      "Bash(find /mnt/c/Users/DanhTran/Desktop/workspace/evasion-attack -type f | sort 2>/dev/null || ls -la \"c:/Users/DanhTran/Desktop/workspace/evasion-attack/\" 2>/dev/null)",
+      "Read(//mnt/c/Users/DanhTran/Desktop/workspace/**)",
+      "PowerShell(pip install pymupdf --quiet 2>&1)",
+      "PowerShell(tail -3)",
+      "PowerShell(python --version)",
+      "PowerShell(python3 --version 2>$null)",
+      "PowerShell(py -3.10 --version 2>$null)",
+      "PowerShell(py --list 2>$null)",
+      "PowerShell(nvidia-smi 2>$null)",
+      "PowerShell(nvcc --version 2>$null)",
+      "PowerShell($env:CUDA_PATH)",
+      "PowerShell($env:CUDA_HOME)"
     ],
     "additionalDirectories": [
       "/workspace/evasion-venv"

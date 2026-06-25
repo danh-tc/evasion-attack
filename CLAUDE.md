@@ -28,21 +28,27 @@ detection paradigm, determines cross-model transfer effectiveness.
 
 ### 6 Target Models (final paper set)
 
-| Name | Backbone | Paradigm | OSFD | Benchmark | Checkpoint |
-|---|---|---|---|---|---|
-| fcos_r50 | ResNet-50 | anchor-free | ✅ | ✅ | `checkpoints/fcos_r50_caffe_fpn_gn-head_1x_coco-821213aa.pth` |
-| deformable_detr | ResNet-50 | transformer | ✅ | ✅ | `checkpoints/deformable-detr_r50_16xb2-50e_coco_20221029_210934-6bc7d21b.pth` |
-| yolov3_d53 | Darknet-53 | anchor | ✅ | ✅ | `checkpoints/yolov3_d53_mstrain-608_273e_coco_20210518_115020-a2c3acb8.pth` |
-| yolox_l | CSPNet | anchor-free | ✅ | ✅ | `checkpoints/yolox_l_8x8_300e_coco_20211126_140236-d3bd2b23.pth` |
-| mask_rcnn_swin_t | Swin-T | two-stage | — | (surrogate) | `checkpoints/mask_rcnn_swin-t_1x_coco_20210902_120937-9d6b7cfa.pth` |
-| dino_swin_l | Swin-L | full-transformer | — | ✅ | `checkpoints/dino-5scale_swin-l_8xb2-12e_coco_20230228_072924-a654145f.pth` |
+Grouped by backbone family — backbone determines transfer tier, NOT detection paradigm (Finding F2).
+Overlap: 4/6 with Benchmark (arXiv:2602.16494), 4/6 with OSFD (AAAI 2024).
 
-### Supplementary / Ablation targets (downloaded, not in main table)
-| Name | Checkpoint |
-|---|---|
-| retinanet_r50 | `checkpoints/retinanet_r50_fpn_1x_coco_20200130-c2398f9e.pth` |
-| retinanet_r101 | `checkpoints/retinanet_r101_fpn_1x_coco_20200130-7a93545f.pth` |
-| dino_r50 | `checkpoints/dino-4scale_r50_8xb2-12e_coco_20221202_182705-55b2bba2.pth` |
+| Group | Name | Backbone | Paradigm | OSFD | Benchmark | Checkpoint |
+|---|---|---|---|---|---|---|
+| **A — In-family (ResNet-50)** | fcos_r50 | ResNet-50 | anchor-free | ✅ | ✅ | `checkpoints/fcos_r50_caffe_fpn_gn-head_1x_coco-821213aa.pth` |
+| **A — In-family (ResNet-50)** | deformable_detr | ResNet-50 | transformer | ✅ (DETR) | ✅ (DETR) | `checkpoints/deformable-detr_r50_16xb2-50e_coco_20221029_210934-6bc7d21b.pth` |
+| **B — Near-family (non-ResNet CNN)** | yolov3_d53 | Darknet-53 | anchor | ✅ | ✅ | `checkpoints/yolov3_d53_mstrain-608_273e_coco_20210518_115020-a2c3acb8.pth` |
+| **B — Near-family (non-ResNet CNN)** | yolox_l | CSPNet | anchor-free | ✅ | ✅ | `checkpoints/yolox_l_8x8_300e_coco_20211126_140236-d3bd2b23.pth` |
+| **C — Cross-family (Swin ViT)** | mask_rcnn_swin_t | Swin-T | two-stage | — | surrogate | `checkpoints/mask_rcnn_swin-t_1x_coco_20210902_120937-9d6b7cfa.pth` |
+| **C — Cross-family (Swin ViT)** | dino_swin_l | Swin-L | full-transformer | — | ✅ | `checkpoints/dino-5scale_swin-l_8xb2-12e_coco_20230228_072924-a654145f.pth` |
+
+> ⚠ Papers compare by model name with backbone stated explicitly. Cannot compare absolute mAP
+> (different datasets/surrogates). Compare via relative improvement (∆AP or % drop vs PGD baseline).
+
+### Supplementary / Ablation targets (not in main table)
+| Name | Backbone | Purpose | Checkpoint |
+|---|---|---|---|
+| dino_r50 | ResNet-50 | Prove paradigm doesn't matter (F2): full-transformer with R50 = Group A | `checkpoints/dino-4scale_r50_8xb2-12e_coco_20221202_182705-55b2bba2.pth` |
+| retinanet_r50 | ResNet-50 | Additional Group A datapoint | `checkpoints/retinanet_r50_fpn_1x_coco_20200130-c2398f9e.pth` |
+| retinanet_r101 | ResNet-101 | Between-group (ResNet-101 ≈ Group A/B boundary) | `checkpoints/retinanet_r101_fpn_1x_coco_20200130-7a93545f.pth` |
 
 > All models pretrained on COCO train2017. YOLO/Swin configs: use full mmdet .mim paths,
 > NOT copied local configs (relative path resolution breaks outside mmdet config tree).

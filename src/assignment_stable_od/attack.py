@@ -81,7 +81,49 @@ def rpn_suppression_loss(model, img_t: torch.Tensor) -> torch.Tensor:
     return sum(torch.sigmoid(s).mean() for s in cls_scores)
 
 
+def osfd_feature_loss(
+    model,
+    img_adv_t: torch.Tensor,
+    clean_feats: list[torch.Tensor],
+    k: float = 3.0,
+) -> torch.Tensor:
+    """OSFD-style backbone feature distortion loss (RaPA+OSFD combination).
+
+    Suppresses significant features of adv image relative to amplified clean
+    features. Operates at backbone level only — architecture-agnostic, no RPN
+    head required → works on DINO/DETR targets that lack rpn_head.
+
+    clean_feats should be pre-computed once before the attack loop with
+    torch.no_grad() to avoid storing the computation graph.
+    """
+    feats_adv = model.backbone(img_adv_t)
+    loss = sum(
+        F.mse_loss(f_adv, k * f_clean.detach())
+        for f_adv, f_clean in zip(feats_adv, clean_feats)
+    )
+    return loss
+
+
 # ── PGD with optional pruning diversity ───────────────────────────────────────
+
+def _compute_grad(model, img_t, delta, pruning_scope, pruning_rate, seed,
+                  use_feature_loss, clean_feats, feature_k):
+    """Single forward-backward pass, returns detached gradient."""
+    x_adv = (img_t + delta).requires_grad_(True)
+    ctx = (
+        temporary_random_pruning(model, pruning_rate, scope=pruning_scope, seed=seed)
+        if pruning_scope and pruning_rate > 0 else nullcontext()
+    )
+    with ctx:
+        if use_feature_loss:
+            loss = osfd_feature_loss(model, x_adv, clean_feats, k=feature_k)
+        else:
+            loss = rpn_suppression_loss(model, x_adv)
+        loss.backward()
+    grad = x_adv.grad.detach()
+    model.zero_grad()
+    return grad
+
 
 def pgd_attack(
     model,
@@ -97,6 +139,8 @@ def pgd_attack(
     seed_base: int = 0,
     device: str = "cuda:0",
     aux_model=None,
+    use_osfd: bool = False,
+    osfd_k: float = 3.0,
 ) -> np.ndarray:
     """MIM-style PGD.  Inputs and outputs are uint8 BGR HWC arrays.
 
@@ -125,36 +169,28 @@ def pgd_attack(
 
     n_sources = 2 if aux_model is not None else 1
 
+    # Pre-compute clean backbone features once (OSFD loss only)
+    clean_feats = None
+    if use_osfd:
+        with torch.no_grad():
+            clean_feats = [f.detach() for f in model.backbone(img_t)]
+
     for step in range(n_iters):
         grad_accum = torch.zeros_like(img_t)
 
         for mask_idx in range(n_masks):
-            # Primary surrogate gradient
-            seed  = seed_base + step * n_masks + mask_idx
-            x_adv = (img_t + delta).requires_grad_(True)
-            ctx = (
-                temporary_random_pruning(model, pruning_rate, scope=pruning_scope, seed=seed)
-                if pruning_scope and pruning_rate > 0 else nullcontext()
+            seed = seed_base + step * n_masks + mask_idx
+            grad_accum = grad_accum + _compute_grad(
+                model, img_t, delta, pruning_scope, pruning_rate, seed,
+                use_osfd, clean_feats, osfd_k,
             )
-            with ctx:
-                loss = rpn_suppression_loss(model, x_adv)
-                loss.backward()
-            grad_accum = grad_accum + x_adv.grad.detach()
-            model.zero_grad()
 
-            # Auxiliary surrogate gradient (cross-backbone)
             if aux_model is not None:
                 seed_aux = seed_base + 10000 + step * n_masks + mask_idx
-                x_adv2   = (img_t + delta).requires_grad_(True)
-                ctx2 = (
-                    temporary_random_pruning(aux_model, pruning_rate, scope=pruning_scope, seed=seed_aux)
-                    if pruning_scope and pruning_rate > 0 else nullcontext()
+                grad_accum = grad_accum + _compute_grad(
+                    aux_model, img_t, delta, pruning_scope, pruning_rate, seed_aux,
+                    False, None, osfd_k,
                 )
-                with ctx2:
-                    loss2 = rpn_suppression_loss(aux_model, x_adv2)
-                    loss2.backward()
-                grad_accum = grad_accum + x_adv2.grad.detach()
-                aux_model.zero_grad()
 
         grad_accum = grad_accum / (n_masks * n_sources)
 

@@ -11,3 +11,4 @@ results/
 environment_locked.yml
 requirements_locked.txt
 
+/evasion-venv-local/**
