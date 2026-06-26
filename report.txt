@@ -1,16 +1,1 @@
-1. Mục tiêu: Tấn công models Object Detection, evasion attack theo hướng transfer-based black-box với surrogate model
-    + Untargeted: làm object biến mất (bất kỳ class)
-    + Cross-family attacks (CNN và VIT)
-    + Kỹ thuật: áp dụng RaPA từ Classification sang Object Detection (first idea)
-
-2. Dataset: COCO
-
-3. Target models: 9 models, chia 4 tiers theo backbone family
-   Group	Models	Backbone
-    A — In-family	fcos_r50, deformable_detr	ResNet-50
-    B — Near-family	yolov3_d53, yolox_l	Darknet-53, CSPNet
-    C — Cross-family	mask_rcnn_swin_t, dino_swin_l	Swin-T, Swin-L
-
-4. Độ đo đánh giá:
-   + ASR (object disappearance): % object bị mất sau attack
-   + mAP drop (%): % giảm độ chính xác tổng thể của detector
+https://docs.google.com/document/d/1VHd69pg6zZ5pIhpTkEk1A3h1WAp69hGB6bOE2y3RraY/edit?usp=sharing
