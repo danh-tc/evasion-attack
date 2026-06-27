@@ -18,8 +18,8 @@ Usage examples:
 
     # E3c — dual surrogate (R50 + Swin-T)
     python scripts/run_attack.py --loss osfd --k 3.0 --prune-types norm --n-masks 2 --rate 0.05 \
-        --aux-config checkpoints/mask_rcnn_swin-t_1x_coco.py \
-        --aux-ckpt   checkpoints/mask_rcnn_swin-t_1x_coco_20210902_120937-9d6b7cfa.pth \
+        --aux-config checkpoints/mask-rcnn_swin-t-p4-w7_fpn_1x_coco.py \
+        --aux-ckpt   checkpoints/mask_rcnn_swin-t-p4-w7_fpn_1x_coco_20210902_120937-9d6b7cfa.pth \
         --out results/e3c_dual.json
 """
 from __future__ import annotations
@@ -79,7 +79,7 @@ TARGETS = [
     {
         "name": "mask_rcnn_swin_t", "group": "C",
         "config": "/workspace/evasion-venv/lib/python3.10/site-packages/mmdet/.mim/configs/swin/mask-rcnn_swin-t-p4-w7_fpn_1x_coco.py",
-        "ckpt":   "checkpoints/mask_rcnn_swin-t_1x_coco_20210902_120937-9d6b7cfa.pth",
+        "ckpt":   "checkpoints/mask_rcnn_swin-t-p4-w7_fpn_1x_coco_20210902_120937-9d6b7cfa.pth",
     },
     {
         "name": "dino_swin_l", "group": "C",

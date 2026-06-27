@@ -2,7 +2,6 @@ README.md
 pyproject.toml
 src/assignment_stable_od/__init__.py
 src/assignment_stable_od/attack.py
-src/assignment_stable_od/matching.py
 src/assignment_stable_od/pruning.py
 src/assignment_stable_od.egg-info/PKG-INFO
 src/assignment_stable_od.egg-info/SOURCES.txt

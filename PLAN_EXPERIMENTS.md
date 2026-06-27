@@ -120,6 +120,7 @@ E3x → E4:    Combination tốt nhất là gì?
 
 ## Status
 
+- [x] E0  — Hyperparameter sweep (rate × n_masks) — **DONE** `results/e0_sweep.json`
 - [ ] E1a — PGD baseline
 - [ ] E2a — RaPA (Norm) + RPN
 - [ ] E2b — RaPA (Norm) + OSFD k=3
@@ -127,3 +128,35 @@ E3x → E4:    Combination tốt nhất là gì?
 - [ ] E3b — E2b + Patch-masking
 - [ ] E3c — E2b + Dual surrogate
 - [ ] E4  — Best combo
+
+## E0 Results (20 ảnh, 40 iters, OSFD k=3, scope=backbone, prune=Norm)
+
+| rate | masks | WB | A (fcos_r50) | B (yolov3) | C (swin_t) |
+|---|---|---|---|---|---|
+| 0.01 | 1 | 0.891 | 0.541 | 0.226 | 0.214 |
+| 0.01 | 2 | 0.876 | 0.588 | 0.230 | 0.247 |
+| 0.01 | 3 | 0.892 | 0.544 | 0.226 | 0.234 |
+| 0.01 | 5 | 0.882 | 0.552 | 0.240 | 0.231 |
+| **0.05** | 1 | 0.917 | 0.579 | 0.247 | 0.282 |
+| **0.05** | 2 | 0.902 | 0.648 | 0.250 | 0.271 |
+| **0.05** | 3 | 0.914 | 0.604 | 0.224 | 0.283 |
+| **0.05** | 5 | 0.909 | 0.684 | 0.288 | 0.313 |
+| 0.10 | 1 | 0.840 | 0.562 | 0.238 | 0.276 |
+| 0.10 | 2 | 0.859 | 0.617 | 0.269 | 0.267 |
+| 0.10 | 3 | 0.873 | 0.598 | 0.274 | 0.289 |
+| 0.10 | 5 | 0.876 | 0.605 | 0.311 | 0.307 |
+| 0.20 | 1 | 0.399 | 0.178 | 0.165 | 0.186 |
+| 0.20 | 2 | 0.390 | 0.210 | 0.137 | 0.171 |
+| 0.20 | 3 | 0.422 | 0.171 | 0.172 | 0.170 |
+| 0.20 | 5 | 0.399 | 0.197 | 0.126 | 0.150 |
+| 0.50 | 1 | 0.169 | 0.138 | 0.096 | 0.129 |
+| 0.50 | 2 | 0.148 | 0.114 | 0.101 | 0.123 |
+| 0.50 | 3 | 0.176 | 0.120 | 0.121 | 0.143 |
+| 0.50 | 5 | 0.193 | 0.120 | 0.101 | 0.110 |
+
+**Findings:**
+- F1 (Inverted-U) **CONFIRMED**: peak tại rate=0.05, sụp đổ tại rate=0.20 (WB: 0.91→0.40)
+- Sweet spot: **rate=0.05, n_masks=2** — balance tốt nhất giữa performance và compute
+- n_masks tác động nhỏ và không monotone (20 ảnh nhiễu cao)
+- Group B (YOLOv3/Darknet) peak tại rate=0.10 thay vì 0.05 — backbone xa hơn cần diversity cao hơn
+- E3c dùng chung hyperparams với E2b, không cần sweep riêng

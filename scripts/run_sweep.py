@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from itertools import product
 from pathlib import Path
 
@@ -52,7 +53,7 @@ SWEEP_TARGETS = [
     {
         "name": "mask_rcnn_swin_t", "group": "C",
         "config": "/workspace/evasion-venv/lib/python3.10/site-packages/mmdet/.mim/configs/swin/mask-rcnn_swin-t-p4-w7_fpn_1x_coco.py",
-        "ckpt":   "checkpoints/mask_rcnn_swin-t_1x_coco_20210902_120937-9d6b7cfa.pth",
+        "ckpt":   "checkpoints/mask_rcnn_swin-t-p4-w7_fpn_1x_coco_20210902_120937-9d6b7cfa.pth",
     },
 ]
 
@@ -263,6 +264,7 @@ def main():
     print(f"{'─'*len(header)}")
 
     sweep_results: list[dict] = []
+    t_sweep_start = time.perf_counter()
     for combo_idx, (rate, n_masks) in enumerate(grid):
         cfg = AttackConfig(
             epsilon_px=args.epsilon, n_iters=args.n_iters, step_size_px=args.step_size,
@@ -270,16 +272,23 @@ def main():
             n_masks=n_masks, pruning_scope=prune_scope,
             pruning_rate=rate, pruning_types=prune_types, device=DEVICE,
         )
+        t0 = time.perf_counter()
         asr = run_one_combo(
             surrogate, sur_cat_map, targets, image_ids,
             clean_cache, id2file, img_dir, coco_gt, cfg,
         )
+        combo_sec = time.perf_counter() - t0
         row = {"rate": rate, "n_masks": n_masks, **asr}
         sweep_results.append(row)
 
+        elapsed   = time.perf_counter() - t_sweep_start
+        done      = combo_idx + 1
+        eta_sec   = elapsed / done * (n_combos - done)
+        eta_str   = f"{int(eta_sec//60)}m{int(eta_sec%60):02d}s"
+        combo_str = f"{combo_sec:.0f}s/combo"
         line = (f"  {rate:>6.2f}  {n_masks:>5}  {asr['wb']:>7.3f}  " +
                 "  ".join(f"{asr.get(n, 0.0):>18.3f}" for n in tgt_names))
-        print(f"[{combo_idx+1:>{len(str(n_combos))}}/{n_combos}] {line}")
+        print(f"[{done:>{len(str(n_combos))}}/{n_combos}] {line}  [{combo_str}  ETA {eta_str}]")
 
     print(f"{'═'*len(header)}")
 

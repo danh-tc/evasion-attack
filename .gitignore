@@ -7,7 +7,6 @@ __pycache__/
 checkpoints/
 data/
 logs/
-results/
 environment_locked.yml
 requirements_locked.txt
 

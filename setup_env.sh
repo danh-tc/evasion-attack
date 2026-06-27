@@ -18,7 +18,7 @@ if ! command -v "$PYTHON" &>/dev/null; then
     apt-get install -y software-properties-common
     add-apt-repository -y ppa:deadsnakes/ppa
     apt-get update -qq
-    apt-get install -y python3.10 python3.10-dev
+    apt-get install -y python3.10 python3.10-dev python3.10-venv
     echo "python3.10 installed"
 else
     echo "python3.10 found: $($PYTHON --version)"
@@ -94,8 +94,7 @@ pip install --no-cache-dir "mmcv==2.1.0" \
     --find-links "$MMCV_INDEX" \
     --no-deps
 # Install mmcv runtime deps separately so numpy stays pinned
-# (mmcv ships its own cv2 — no need for opencv-python-headless)
-pip install --no-cache-dir "addict" "yapf" "packaging" "Pillow"
+pip install --no-cache-dir "addict" "yapf" "packaging" "Pillow" "opencv-python==4.8.1.78"
 # Re-pin numpy in case the above pulled in 2.x
 pip install --no-cache-dir "numpy==1.26.4"
 
@@ -192,4 +191,6 @@ echo ""
 echo "===== DONE ====="
 echo "Activate with: source $VENV_DIR/bin/activate"
 echo "Project dir:   $PROJECT_DIR"
-echo "Next: python scripts/smoke_inference.py --image /path/to/image.jpg"
+echo "Next: python scripts/check_env.py"
+echo "      python scripts/run_attack.py --n-images 5 --n-iters 5 --out results/smoke.json  # quick smoke test"
+echo "      python scripts/run_sweep.py --n-images 5 --rates 0.05 --masks 2 --n-iters 5 --out results/e0_smoke.json"
