@@ -161,27 +161,106 @@ echo ""
 echo "===== Running check_env.py ====="
 python "$PROJECT_DIR/scripts/check_env.py"
 
-# ── 13. Download Faster R-CNN R50-FPN checkpoint ─────────────────────────────
+# ── 13. Download all model checkpoints ───────────────────────────────────────
 echo ""
-echo "===== Downloading Faster R-CNN R50-FPN checkpoint ====="
+echo "===== Downloading model checkpoints ====="
 CKPT_DIR="$PROJECT_DIR/checkpoints"
-CKPT_FILE="$CKPT_DIR/faster_rcnn_r50_fpn_1x_coco_20200130-047c8118.pth"
-if [ -f "$CKPT_FILE" ]; then
-    echo "Checkpoint already exists — skipping"
-else
-    mim download mmdet --config faster-rcnn_r50_fpn_1x_coco --dest "$CKPT_DIR"
-fi
 
-# ── 14. Download RetinaNet R50-FPN checkpoint ────────────────────────────────
+download_ckpt() {
+    local config="$1"
+    local file="$2"
+    if [ -f "$CKPT_DIR/$file" ]; then
+        echo "  [SKIP] $file"
+    else
+        echo "  [DOWN] $config"
+        mim download mmdet --config "$config" --dest "$CKPT_DIR"
+    fi
+}
+
+# Surrogate
+download_ckpt faster-rcnn_r50_fpn_1x_coco    "faster_rcnn_r50_fpn_1x_coco_20200130-047c8118.pth"
+
+# Group A — ResNet-50 targets
+download_ckpt fcos_r50-caffe_fpn_gn-head_1x_coco   "fcos_r50_caffe_fpn_gn-head_1x_coco-821213aa.pth"
+download_ckpt deformable-detr_r50_16xb2-50e_coco    "deformable-detr_r50_16xb2-50e_coco_20221029_210934-6bc7d21b.pth"
+
+# Group B — Non-ResNet CNN targets
+download_ckpt yolov3_d53_mstrain-608_273e_coco      "yolov3_d53_mstrain-608_273e_coco_20210518_115020-a2c3acb8.pth"
+download_ckpt yolox_l_8x8_300e_coco                 "yolox_l_8x8_300e_coco_20211126_140236-d3bd2b23.pth"
+
+# Group C — Swin ViT targets + aux surrogate
+download_ckpt mask-rcnn_swin-t-p4-w7_fpn_1x_coco   "mask_rcnn_swin-t-p4-w7_fpn_1x_coco_20210902_120937-9d6b7cfa.pth"
+download_ckpt dino-5scale_swin-l_8xb2-12e_coco      "dino-5scale_swin-l_8xb2-12e_coco_20230228_072924-a654145f.pth"
+
+# Supplementary / ablation
+download_ckpt retinanet_r50_fpn_1x_coco             "retinanet_r50_fpn_1x_coco_20200130-c2398f9e.pth"
+download_ckpt retinanet_r101_fpn_1x_coco            "retinanet_r101_fpn_1x_coco_20200130-7a93545f.pth"
+download_ckpt dino-4scale_r50_8xb2-12e_coco         "dino-4scale_r50_8xb2-12e_coco_20221202_182705-55b2bba2.pth"
+
+echo "All checkpoints done."
+
+# ── 14. Download COCO val2017 dataset ────────────────────────────────────────
 echo ""
-echo "===== Downloading RetinaNet R50-FPN checkpoint ====="
-if ls "$CKPT_DIR"/retinanet*.pth 1>/dev/null 2>&1; then
-    echo "RetinaNet checkpoint already exists — skipping"
+echo "===== Downloading COCO val2017 ====="
+DATA_DIR="$PROJECT_DIR/data/coco"
+mkdir -p "$DATA_DIR"
+
+if [ -d "$DATA_DIR/val2017" ] && [ "$(ls -A "$DATA_DIR/val2017" 2>/dev/null | wc -l)" -gt 1000 ]; then
+    echo "  [SKIP] val2017 images already exist"
 else
-    mim download mmdet --config retinanet_r50_fpn_1x_coco --dest "$CKPT_DIR"
+    echo "  Downloading val2017 images (~780 MB)..."
+    curl -fL "http://images.cocodataset.org/zips/val2017.zip" -o /tmp/val2017.zip
+    echo "  Extracting..."
+    python3 -c "import zipfile; zipfile.ZipFile('/tmp/val2017.zip').extractall('$DATA_DIR')"
+    rm /tmp/val2017.zip
+    echo "  val2017 extracted."
 fi
 
-# ── 15. Lock environment ──────────────────────────────────────────────────────
+if [ -f "$DATA_DIR/annotations/instances_val2017.json" ]; then
+    echo "  [SKIP] annotations already exist"
+else
+    echo "  Downloading annotations (~241 MB)..."
+    curl -fL "http://images.cocodataset.org/annotations/annotations_trainval2017.zip" -o /tmp/annotations.zip
+    echo "  Extracting..."
+    python3 -c "import zipfile; zipfile.ZipFile('/tmp/annotations.zip').extractall('$DATA_DIR')"
+    rm /tmp/annotations.zip
+    echo "  Annotations extracted."
+fi
+
+# ── 15. Generate data manifests ───────────────────────────────────────────────
+echo ""
+echo "===== Generating data manifests ====="
+MANIFEST_DIR="$PROJECT_DIR/data/manifests"
+mkdir -p "$MANIFEST_DIR"
+
+if [ -f "$MANIFEST_DIR/dev_300.json" ] && [ -f "$MANIFEST_DIR/val_100.json" ]; then
+    echo "  [SKIP] Manifests already exist"
+else
+    python3 - <<PYEOF
+import json, random
+from pycocotools.coco import COCO
+
+coco = COCO("$DATA_DIR/annotations/instances_val2017.json")
+all_ids = sorted(coco.getImgIds())
+
+rng = random.Random(42)
+rng.shuffle(all_ids)
+
+dev_300 = all_ids[:300]
+val_100 = all_ids[300:400]  # non-overlapping held-out
+
+with open("$MANIFEST_DIR/dev_300.json", "w") as f:
+    json.dump({"seed": 42, "split": "dev", "size": 300, "image_ids": dev_300}, f, indent=2)
+
+with open("$MANIFEST_DIR/val_100.json", "w") as f:
+    json.dump({"seed": 42, "split": "val_held_out", "size": 100, "image_ids": val_100}, f, indent=2)
+
+print(f"  dev_300.json: {len(dev_300)} images")
+print(f"  val_100.json: {len(val_100)} images (HELD-OUT — do not touch until config frozen)")
+PYEOF
+fi
+
+# ── 16. Lock environment ──────────────────────────────────────────────────────
 echo ""
 echo "===== Saving requirements snapshot ====="
 pip freeze > "$PROJECT_DIR/requirements_locked.txt"
@@ -192,5 +271,5 @@ echo "===== DONE ====="
 echo "Activate with: source $VENV_DIR/bin/activate"
 echo "Project dir:   $PROJECT_DIR"
 echo "Next: python scripts/check_env.py"
-echo "      python scripts/run_attack.py --n-images 5 --n-iters 5 --out results/smoke.json  # quick smoke test"
+echo "      python scripts/run_attack.py --n-images 5 --n-iters 5 --out results/smoke.json"
 echo "      python scripts/run_sweep.py --n-images 5 --rates 0.05 --masks 2 --n-iters 5 --out results/e0_smoke.json"
