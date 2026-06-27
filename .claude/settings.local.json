@@ -34,7 +34,14 @@
       "PowerShell(nvidia-smi 2>$null)",
       "PowerShell(nvcc --version 2>$null)",
       "PowerShell($env:CUDA_PATH)",
-      "PowerShell($env:CUDA_HOME)"
+      "PowerShell($env:CUDA_HOME)",
+      "WebSearch",
+      "Bash(python -c ' *)",
+      "Bash(/workspace/evasion-venv/bin/python -c ' *)",
+      "Bash(find /workspace -name \"python3\" -o -name \"python\" 2>/dev/null | head -10 && find /home -name \"activate\" 2>/dev/null | head -5)",
+      "Read(//home/**)",
+      "Bash(pip3 show *)",
+      "Bash(python3 -c \"import mmdet\")"
     ],
     "additionalDirectories": [
       "/workspace/evasion-venv"
