@@ -44,6 +44,13 @@ class AttackConfig:
     pruning_types: list[str] | None  = field(default=None)
     # None → ["Normalization", "Linear"] inside temporary_random_pruning
 
+    # E3a — low-frequency gradient constraint
+    low_freq_keep: float = 0.0   # fraction of freq bandwidth to keep; 0.0 = disabled
+
+    # E3b — patch masking (zero random patches before feature extraction)
+    patch_mask_size:  int = 0    # patch side length in pixels; 0 = disabled
+    patch_mask_count: int = 4    # number of patches to zero per forward pass
+
 
 # ── Image I/O ─────────────────────────────────────────────────────────────────
 
@@ -108,6 +115,50 @@ def osfd_feature_loss(
     )
 
 
+# ── E3 extensions ─────────────────────────────────────────────────────────────
+
+def low_freq_filter(grad: torch.Tensor, keep_ratio: float) -> torch.Tensor:
+    """Low-pass filter on gradient via 2D rFFT (E3a).
+
+    Keeps the lowest keep_ratio fraction of spatial frequencies, zeroing
+    high-freq components that encode texture/fine-detail rather than shape.
+    Operates independently per channel.
+    """
+    G = torch.fft.rfft2(grad)              # [..., H, W//2+1], complex
+    H, W_h = G.shape[-2], G.shape[-1]
+    # Half-bandwidth: keep k rows from top and k rows from bottom (symmetric)
+    h_k = max(1, round(H * keep_ratio * 0.5))
+    w_k = max(1, round(W_h * keep_ratio))
+    mask = torch.zeros(H, W_h, device=grad.device, dtype=grad.real.dtype)
+    mask[:h_k, :w_k] = 1.0
+    mask[-h_k:, :w_k] = 1.0               # negative-frequency rows (wrap-around)
+    return torch.fft.irfft2(G * mask, s=grad.shape[-2:])
+
+
+def patch_mask_image(
+    img_t: torch.Tensor,
+    patch_size: int,
+    n_patches: int,
+    seed: int,
+) -> torch.Tensor:
+    """Zero n_patches random patches via differentiable multiply (E3b).
+
+    Multiplying by a 0/1 mask is autograd-safe: gradient in masked regions
+    is zeroed, so the PGD update ignores those spatial locations this step.
+    Forces the perturbation to be effective across diverse spatial regions.
+    """
+    H, W = img_t.shape[-2], img_t.shape[-1]
+    mask = torch.ones(1, 1, H, W, device=img_t.device)
+    rng  = torch.Generator(device="cpu")   # randint only supports CPU generators
+    rng.manual_seed(seed)
+    ps = patch_size
+    for _ in range(n_patches):
+        y0 = int(torch.randint(0, max(1, H - ps), (1,), generator=rng).item())
+        x0 = int(torch.randint(0, max(1, W - ps), (1,), generator=rng).item())
+        mask[..., y0:y0 + ps, x0:x0 + ps] = 0.0
+    return img_t * mask
+
+
 # ── PGD loop ──────────────────────────────────────────────────────────────────
 
 def _grad_single_pass(
@@ -120,9 +171,18 @@ def _grad_single_pass(
 ) -> torch.Tensor:
     """One forward-backward pass, optionally with random weight masking.
 
-    Backward runs while masks are active → gradient correctly reflects pruned model.
+    E3b patch masking is applied to the input before forward (gradient flows
+    through the mask, zeroing updates in masked regions this step).
+    E3a low-freq filter is applied to the gradient after backward.
     """
     x = (img_t + delta).requires_grad_(True)
+    # E3b: zero random patches before feature extraction
+    x_fwd = (
+        patch_mask_image(x, cfg.patch_mask_size, cfg.patch_mask_count,
+                         seed=seed + 300_000)
+        if cfg.patch_mask_size > 0
+        else x
+    )
     ctx = (
         temporary_random_pruning(
             model, cfg.pruning_rate,
@@ -133,14 +193,17 @@ def _grad_single_pass(
     )
     with ctx:
         if cfg.loss_type == "osfd":
-            loss = osfd_feature_loss(model, x, clean_feats, k=cfg.osfd_k)
+            loss = osfd_feature_loss(model, x_fwd, clean_feats, k=cfg.osfd_k)
         elif cfg.loss_type == "rpn":
-            loss = rpn_suppression_loss(model, x)
+            loss = rpn_suppression_loss(model, x_fwd)
         else:
             raise ValueError(f"Unknown loss_type={cfg.loss_type!r}. Use 'osfd' or 'rpn'.")
         loss.backward()
 
     grad = x.grad.detach()
+    # E3a: project gradient onto low-frequency subspace
+    if cfg.low_freq_keep > 0.0:
+        grad = low_freq_filter(grad, cfg.low_freq_keep)
     model.zero_grad()
     return grad
 

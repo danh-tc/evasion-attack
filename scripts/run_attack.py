@@ -364,6 +364,12 @@ def parse_args():
     p.add_argument("--prune-types", nargs="+", default=["norm"],
                    choices=list(_PRUNE_TYPE_MAP),
                    help="Layer types: norm=BN+LN, linear=Linear, conv=Conv2d")
+    p.add_argument("--low-freq-keep",   type=float, default=0.0,
+                   help="E3a: low-pass filter on gradient (keep_ratio 0–1). 0 = disabled.")
+    p.add_argument("--patch-mask-size", type=int,   default=0,
+                   help="E3b: patch side length in pixels to mask. 0 = disabled.")
+    p.add_argument("--patch-mask-count", type=int,  default=4,
+                   help="E3b: number of patches to mask per forward pass.")
     p.add_argument("--out",        type=Path,  default=Path("results/attack_result.json"))
     return p.parse_args()
 
@@ -389,6 +395,9 @@ def main():
         momentum=args.momentum, loss_type=args.loss, osfd_k=args.k,
         n_masks=args.n_masks, pruning_scope=prune_scope,
         pruning_rate=args.rate, pruning_types=prune_types, device=DEVICE,
+        low_freq_keep=args.low_freq_keep,
+        patch_mask_size=args.patch_mask_size,
+        patch_mask_count=args.patch_mask_count,
     )
 
     print("Loading surrogate...")
@@ -423,6 +432,10 @@ def main():
     print(f"Pruning   : scope={cfg.pruning_scope}  rate={cfg.pruning_rate}"
           f"  types={cfg.pruning_types}  n_masks={cfg.n_masks}")
     print(f"Budget    : eps={cfg.epsilon_px}px  iters={cfg.n_iters}  step={cfg.step_size_px}px")
+    if cfg.low_freq_keep > 0:
+        print(f"E3a       : low_freq_keep={cfg.low_freq_keep}")
+    if cfg.patch_mask_size > 0:
+        print(f"E3b       : patch_mask_size={cfg.patch_mask_size}px  count={cfg.patch_mask_count}")
 
     bar_fmt = "{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]"
 
@@ -485,18 +498,21 @@ def main():
     # ── Save JSON ─────────────────────────────────────────────────────────────
     output = {
         "meta": {
-            "n_images":      len(image_ids),
-            "loss":          cfg.loss_type,
-            "osfd_k":        cfg.osfd_k,
-            "epsilon_px":    cfg.epsilon_px,
-            "n_iters":       cfg.n_iters,
-            "step_size_px":  cfg.step_size_px,
-            "momentum":      cfg.momentum,
-            "n_masks":       cfg.n_masks,
-            "pruning_scope": cfg.pruning_scope,
-            "pruning_rate":  cfg.pruning_rate,
-            "pruning_types": cfg.pruning_types,
-            "aux_model":     str(args.aux_config) if args.aux_config else None,
+            "n_images":        len(image_ids),
+            "loss":            cfg.loss_type,
+            "osfd_k":          cfg.osfd_k,
+            "epsilon_px":      cfg.epsilon_px,
+            "n_iters":         cfg.n_iters,
+            "step_size_px":    cfg.step_size_px,
+            "momentum":        cfg.momentum,
+            "n_masks":         cfg.n_masks,
+            "pruning_scope":   cfg.pruning_scope,
+            "pruning_rate":    cfg.pruning_rate,
+            "pruning_types":   cfg.pruning_types,
+            "aux_model":       str(args.aux_config) if args.aux_config else None,
+            "low_freq_keep":   cfg.low_freq_keep,
+            "patch_mask_size": cfg.patch_mask_size,
+            "patch_mask_count": cfg.patch_mask_count,
         },
         "clean_mAP":    clean_map,
         "adv_mAP":      adv_map,
