@@ -123,11 +123,12 @@ E3x → E4:    Combination tốt nhất là gì?
 - [x] E0  — Hyperparameter sweep (rate × n_masks) — **DONE** `results/e0_sweep.json`
 - [x] E1a — PGD baseline — **DONE** `results/e1a_pgd.json`
 - [x] E2a — RaPA (Norm) + RPN — **DONE** `results/e2a_rapa_rpn.json`
-- [x] E2b — RaPA (Norm) + OSFD k=3 — **DONE** `results/e2b_rapa_osfd.json` ← **MAIN METHOD**
-- [ ] E3a — E2b + Low-frequency *(cần implement)*
-- [ ] E3b — E2b + Patch-masking *(cần implement)*
+- [x] E2b — RaPA (Norm) + OSFD k=3 — **DONE** `results/e2b_rapa_osfd.json`
+- [x] E3a — E2b + Low-frequency (keep=0.5) — **DONE** `results/e3a_lowfreq05.json` ← **BEST SINGLE**
+- [x] E3b — E2b + Patch-masking (32×4) — **DONE** `results/e3b_patch32x4.json` (positive, weaker than E3a)
 - [x] E3c — E2b + Dual surrogate — **DONE** `results/e3c_dual.json` (negative result)
-- [ ] E4  — Best combo = E2b
+- [x] E3a-sweep — E3a với keep_ratio=0.3 — **DONE** `results/e3a_lowfreq03.json`
+- [x] E4  — E3a + E3b stack — **DONE** `results/e4_stack.json` (negative: patch không cộng hưởng với low-freq)
 
 ## E0 Results (20 ảnh, 40 iters, OSFD k=3, scope=backbone, prune=Norm)
 
@@ -212,6 +213,61 @@ E3x → E4:    Combination tốt nhất là gì?
 **Findings (negative result):**
 - E3c trade-off cực kỳ bất lợi: Group A mất -0.46 đến -0.56 chỉ để gain +0.115 trên swin_t
 - DINO-Swin-L thậm chí GIẢM (0.098→0.041) — Swin-T gradient không transfer sang Swin-L
-- **E2b là method chính** — E3c không cải thiện overall
 - Negative result support F2: gradient R50 và Swin-T conflict nhau, chứng minh backbone family gap là thực sự deep
-- **E4 = E2b** (không cần thêm component)
+
+---
+
+## E3a / E3b Results (100 ảnh, 40 iters, ε=8px, 6 targets)
+
+### ASR (Object Disappearance Rate)
+
+| | E2b (baseline) | E3b (+patch 32×4) | **E3a (+low-freq 0.5)** |
+|---|---|---|---|
+| **WB-ASR** | 0.907 | 0.924 | **0.987** |
+| [A] fcos_r50 | 0.688 | 0.737 | **0.932** |
+| [A] deformable_detr | 0.868 | 0.889 | **0.965** |
+| [B] yolov3_d53 | 0.310 | 0.349 | **0.544** |
+| [B] yolox_l | 0.272 | 0.306 | **0.508** |
+| [C] mask_rcnn_swin_t | 0.263 | 0.293 | **0.485** |
+| [C] dino_swin_l | 0.098 | 0.102 | **0.149** |
+
+### ΔAP (mAP drop)
+
+| | E2b | E3b | **E3a** |
+|---|---|---|---|
+| [A] fcos_r50 | −0.366 | −0.329 | **−0.421** |
+| [A] deformable_detr | −0.531 | −0.513 | **−0.553** |
+| [B] yolov3_d53 | −0.132 | −0.167 | **−0.240** |
+| [B] yolox_l | −0.184 | −0.195 | **−0.280** |
+| [C] mask_rcnn_swin_t | −0.181 | −0.211 | **−0.296** |
+| [C] dino_swin_l | −0.026 | −0.048 | **−0.094** |
+
+**Findings:**
+- **Ranking:** E3a > E3b > E2b > E2a > E1a >> E3c
+- **E3a thắng tuyệt đối** — tốt hơn E2b trên tất cả 7/7 metrics, không có trade-off
+  - Group B: yolov3 +75%, yolox +87%
+  - Group C: swin_t +84%, dino_swin_l +52%
+  - WB tăng: 0.907 → 0.987 (không sacrifice)
+- **Lý giải E3a:** Low-freq filter cắt high-freq texture gradient đặc thù của ResNet-50,
+  giữ lại global structure signal phổ quát hơn qua backbone families
+- **E3b positive nhưng yếu hơn E3a** — tất cả target tăng 4–13%, không có negative
+- **E3c đã bị loại** — WB sập −51% với gain nhỏ Group C → không dùng
+
+---
+
+## Nhóm 4 (mở rộng) — Best Combo & Sweep
+
+### E4 — E3a + E3b stack — **DONE (negative)**
+- Kết hợp low-freq filter (keep=0.5) + patch masking (32×4)
+- Kết quả: KHÔNG cộng hưởng — swin_t giảm 0.485→0.443 so với E3a đơn thuần
+- Lý giải: low-freq filter đã xử lý spatial robustness, patch masking chỉ thêm noise vào signal đã sạch
+- **→ E3a alone là best combo, không cần stack**
+
+### E3a-sweep — Low-freq keep_ratio = 0.3 — **DONE**
+- Kết quả: trade-off so với keep=0.5
+  - 0.3 tốt hơn: yolov3 +0.101 (+18.6%), swin_t +0.039, dino_swin_l +0.011
+  - 0.5 tốt hơn: yolox +0.043, fcos +0.009
+  - Avg 6 targets: 0.3 → 0.613, 0.5 → 0.597 (**0.3 thắng trung bình**)
+- Output: `results/e3a_lowfreq03.json`
+
+**→ Dùng cả 0.3 và 0.5 làm ablation table trong paper (keep_ratio sweep)**
