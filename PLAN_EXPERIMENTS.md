@@ -50,6 +50,16 @@
 - Pruning: không
 - n_masks: 1
 
+### E1b — OSFD thuần (no pruning)
+- Loss: OSFD feature distortion (k=3), giống E2b
+- Pruning: **không** (rate=0) — khác biệt duy nhất so với E2b
+- n_masks: 1
+- Mục tiêu: tách riêng đóng góp của loss OSFD khỏi đóng góp của RaPA pruning.
+  Hiện tại E2b (RaPA+OSFD) chỉ so được với E1a (RPN, no pruning) và E2a (RPN+RaPA),
+  chưa có ô "OSFD, no pruning" nên không biết % cải thiện của E2b đến từ OSFD hay từ RaPA.
+- Script: `python scripts/run_attack.py --loss osfd --k 3.0 --n-masks 1 --rate 0 --n-images 100 --out results/e1b_osfd_baseline.json`
+- Cùng 100 ảnh / ε / iters với E1a, E2b để so sánh trực tiếp
+
 ---
 
 ## Nhóm 2 — Fix RaPA đúng theo gốc
@@ -102,6 +112,8 @@
 ```
 E1a → E2a:   Norm pruning có giúp so với PGD không?
 E2a → E2b:   Feature distortion (k=3) vs RPN suppression?
+E1a → E1b:   OSFD loss tự thân đóng góp bao nhiêu (chưa có RaPA)?
+E1b → E2b:   RaPA pruning đóng góp thêm bao nhiêu trên nền OSFD?
 E2b → E3a:   Low-frequency lift Group C bao nhiêu?
 E2b → E3b:   Patch-masking thêm được gì?
 E2b → E3c:   Dual surrogate giải quyết Group C đến đâu?
@@ -122,6 +134,7 @@ E3x → E4:    Combination tốt nhất là gì?
 
 - [x] E0  — Hyperparameter sweep (rate × n_masks) — **DONE** `results/e0_sweep.json`
 - [x] E1a — PGD baseline — **DONE** `results/e1a_pgd.json`
+- [ ] E1b — OSFD baseline (no pruning) — **TODO**, tách đóng góp OSFD vs RaPA (script đã sẵn sàng)
 - [x] E2a — RaPA (Norm) + RPN — **DONE** `results/e2a_rapa_rpn.json`
 - [x] E2b — RaPA (Norm) + OSFD k=3 — **DONE** `results/e2b_rapa_osfd.json`
 - [x] E3a — E2b + Low-frequency (keep=0.5) — **DONE** `results/e3a_lowfreq05.json` ← **BEST SINGLE**
@@ -195,6 +208,13 @@ E3x → E4:    Combination tốt nhất là gì?
 - **RaPA** chủ yếu giúp WB và Group A in-family (diversity tăng WB +53%)
 - **OSFD** bridge cross-family gap: Group B/C hưởng lợi gấp 2–3× so với RaPA alone
 - **DINO-Swin-L vẫn kháng cự** (0.098) — backbone gap quá lớn → động lực chạy E3c
+
+> ⚠ **Caveat (chưa verify):** dòng "E2a→E2b: +0.336" isolate đúng hiệu ứng loss
+> (RaPA giữ nguyên rate=0.05 ở cả 2 cột), nhưng kết luận "RaPA chủ yếu giúp WB/Group A"
+> được rút ra từ **E1a→E2a (loss=RPN)**, chưa kiểm chứng trên nền OSFD. Thiếu ô
+> **E1b (OSFD, rate=0)** nên chưa biết RaPA đóng góp bao nhiêu *khi đã có OSFD*
+> (E1b→E2b) — có thể RaPA gần như không cộng thêm gì nếu OSFD đã chiếm hết effect.
+> Cần chạy E1b để xác nhận trước khi đưa "RaPA+OSFD complementary" vào paper.
 
 ---
 

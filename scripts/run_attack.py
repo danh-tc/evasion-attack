@@ -1,23 +1,29 @@
 #!/usr/bin/env python3
 """Craft adversarial examples on surrogate, evaluate transfer on 6 target models.
 
-Covers experiments E1a, E2a, E2b, E3c (see PLAN_EXPERIMENTS.md).
+Covers experiments E1a, E1b, E2a, E2b, E3c (see PLAN_EXPERIMENTS.md).
 
-Usage examples:
-    # E1a — PGD baseline
-    python scripts/run_attack.py --loss rpn --n-masks 1 --rate 0 \
+Usage examples (all use --n-images 100 to match the published results files):
+    # E1a — PGD baseline (RPN loss, no pruning)
+    python scripts/run_attack.py --loss rpn --n-masks 1 --rate 0 --n-images 100 \
         --out results/e1a_pgd.json
 
+    # E1b — OSFD baseline (no pruning) — isolates OSFD's own contribution
+    # vs RaPA's, so E2b's gain over E1a can be split into OSFD-alone (E1b-E1a)
+    # and RaPA-on-top-of-OSFD (E2b-E1b)
+    python scripts/run_attack.py --loss osfd --k 3.0 --n-masks 1 --rate 0 --n-images 100 \
+        --out results/e1b_osfd_baseline.json
+
     # E2a — RaPA (Norm) + RPN
-    python scripts/run_attack.py --loss rpn --prune-types norm --n-masks 2 --rate 0.05 \
+    python scripts/run_attack.py --loss rpn --prune-types norm --n-masks 2 --rate 0.05 --n-images 100 \
         --out results/e2a_rapa_rpn.json
 
     # E2b — RaPA (Norm) + OSFD k=3  [main baseline]
-    python scripts/run_attack.py --loss osfd --k 3.0 --prune-types norm --n-masks 2 --rate 0.05 \
+    python scripts/run_attack.py --loss osfd --k 3.0 --prune-types norm --n-masks 2 --rate 0.05 --n-images 100 \
         --out results/e2b_rapa_osfd.json
 
     # E3c — dual surrogate (R50 + Swin-T)
-    python scripts/run_attack.py --loss osfd --k 3.0 --prune-types norm --n-masks 2 --rate 0.05 \
+    python scripts/run_attack.py --loss osfd --k 3.0 --prune-types norm --n-masks 2 --rate 0.05 --n-images 100 \
         --aux-config checkpoints/mask-rcnn_swin-t-p4-w7_fpn_1x_coco.py \
         --aux-ckpt   checkpoints/mask_rcnn_swin-t-p4-w7_fpn_1x_coco_20210902_120937-9d6b7cfa.pth \
         --out results/e3c_dual.json
