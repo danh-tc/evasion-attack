@@ -1,0 +1,20 @@
+_base_ = [
+    './RaPA-RDI-TI-MI-tar.py',
+]
+name="RaPA-RDI-TI-MI-tar"
+input_transform=dict(
+    type="Resize",
+    resize_size=(224,224),
+    input_transform=_base_.input_transform,
+)
+attacker_cfg=dict(
+    input_transform=input_transform,
+    loss_fn=_base_.loss_fn,
+    get_gradient=_base_.get_gradient,
+    update_gradient=_base_.update_gradient,
+)
+source_models_cfg=dict(
+    source_model_names=[
+        'vit_base_patch16_224','CLIP'
+    ],
+)

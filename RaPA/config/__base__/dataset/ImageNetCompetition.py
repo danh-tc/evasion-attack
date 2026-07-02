@@ -1,0 +1,13 @@
+is_targeted=True
+dataset_cfg=dict(
+    type="ImageNetCompetition",
+    input_dir="data/ImageNetCompetition",
+    is_targeted=is_targeted,
+    eval=False,
+    label_file="data/ImageNetCompetition/images.csv",
+)
+data_loader_cfg=dict(
+    batch_size=16,
+    num_workers=2,
+    shuffle=False,
+)
