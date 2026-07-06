@@ -156,10 +156,15 @@ E1a → E2a:   Norm pruning có giúp so với PGD không?
 E2a → E2b:   Feature distortion (k=3) vs RPN suppression?
 E1a → E1b:   OSFD loss tự thân đóng góp bao nhiêu (chưa có RaPA)?
 E1b → E2b:   RaPA pruning đóng góp thêm bao nhiêu trên nền OSFD?
+E1b → E1c:   RRB đóng góp bao nhiêu trên nền OSFD (no pruning)?           ✅ RẤT LỚN
+E1c → E2b:   RRB alone vs RaPA+OSFD stack — cái nào mạnh hơn?             ✅ E1c thắng
+E1c → E3a:   RRB alone vs RaPA+OSFD+low-freq — cái nào mạnh hơn?          ✅ E1c ≈ thắng (5/7)
 E2b → E3a:   Low-frequency lift Group C bao nhiêu?
 E2b → E3b:   Patch-masking thêm được gì?
 E2b → E3c:   Dual surrogate giải quyết Group C đến đâu?
 E3x → E4:    Combination tốt nhất là gì?
+
+⚠ TODO tiếp theo (do E1c gây ra): E1c+RaPA và E1c+low-freq — xem "So sánh E1c vs E2b/E3a"
 ```
 
 ---
@@ -184,9 +189,12 @@ E3x → E4:    Combination tốt nhất là gì?
 
 - [x] E0  — Hyperparameter sweep (rate × n_masks) — **DONE** `results/e0_sweep.json` (⚠ mask cũ, xem trên)
 - [x] E1a — PGD baseline — **DONE** `results/e1a_pgd.json`
-- [ ] E1b — OSFD baseline (no pruning) — **TODO**, tách đóng góp OSFD vs RaPA (script đã sẵn sàng)
-- [ ] E1c — OSFD + RRB (bản trung thành đầy đủ) — **TODO**, code vừa implement xong,
-      chưa chạy — xem Nhóm 1. Nên chạy trước E1b hoặc song song, vì có thể đổi baseline chính.
+- [x] E1b — OSFD baseline (no pruning) — **DONE** `evasion-attack/results/e1b_osfd_baseline.json`, tách đóng góp OSFD vs RaPA (script đã sẵn sàng)
+- [x] E1c — OSFD + RRB (bản trung thành đầy đủ) — **DONE** `results/e1c_osfd_rrb.json`
+      — **RRB thắng áp đảo**, vượt cả stack RaPA+low-freq (E3a) trên Group B/C, xem chi tiết
+      ở "E1a/E1b/E1c Results" bên dưới. Không dùng pruning (rate=0) nên **không dính lỗi
+      mask cũ** ở Nhóm 2. **⚠ Cần chạy thêm E1c+RaPA và E1c+low-freq trước khi chốt E3a là
+      best combo — xem cảnh báo trong phần "So sánh E1c vs E2b/E3a" bên dưới.**
 - [x] E2a — RaPA (Norm) + RPN — **DONE** `results/e2a_rapa_rpn.json` (⚠ mask cũ, xem trên)
 - [x] E2b — RaPA (Norm) + OSFD k=3 — **DONE** `results/e2b_rapa_osfd.json` (⚠ mask cũ, xem trên)
 - [x] E3a — E2b + Low-frequency (keep=0.5) — **DONE** `results/e3a_lowfreq05.json` ← **BEST SINGLE** (⚠ mask cũ)
@@ -226,6 +234,80 @@ E3x → E4:    Combination tốt nhất là gì?
 - n_masks tác động nhỏ và không monotone (20 ảnh nhiễu cao)
 - Group B (YOLOv3/Darknet) peak tại rate=0.10 thay vì 0.05 — backbone xa hơn cần diversity cao hơn
 - E3c dùng chung hyperparams với E2b, không cần sweep riêng
+
+---
+
+## E1a / E1b / E1c Results (100 ảnh, 40 iters, ε=8px, 6 targets)
+
+### ASR (Object Disappearance Rate)
+
+| | E1a (PGD) | E1b (OSFD, no RRB) | **E1c (OSFD+RRB)** |
+|---|---|---|---|
+| **WB-ASR** | 0.493 | 0.874 | **0.980** |
+| [A] fcos_r50 | 0.176 | 0.548 | **0.955** |
+| [A] deformable_detr | 0.278 | 0.776 | **0.959** |
+| [B] yolov3_d53 | 0.082 | 0.235 | **0.708** |
+| [B] yolox_l | 0.063 | 0.183 | **0.674** |
+| [C] mask_rcnn_swin_t | 0.086 | 0.218 | **0.663** |
+| [C] dino_swin_l | 0.034 | 0.110 | **0.236** |
+
+### ΔAP (mAP drop)
+
+| | E1a (PGD) | E1b (OSFD, no RRB) | **E1c (OSFD+RRB)** |
+|---|---|---|---|
+| WB | — | −0.471 | **−0.503** |
+| [A] fcos_r50 | −0.068 | −0.261 | **−0.458** |
+| [A] deformable_detr | −0.116 | −0.452 | **−0.553** |
+| [B] yolov3_d53 | −0.036 | −0.139 | **−0.348** |
+| [B] yolox_l | −0.022 | −0.148 | **−0.441** |
+| [C] mask_rcnn_swin_t | −0.041 | −0.158 | **−0.411** |
+| [C] dino_swin_l | −0.012 | −0.041 | **−0.164** |
+
+**Findings:**
+- **RRB đóng góp rất lớn, còn lớn hơn cả OSFD tự thân trên Group B/C**: E1b→E1c tăng
+  ASR +0.41 đến +0.49 trên Group B/C (yolov3 +0.473, yolox +0.491, swin_t +0.445),
+  so với E1a→E1b (OSFD alone) chỉ +0.12–+0.15 trên cùng nhóm. Confirm giả thuyết trong
+  ghi chú E1c: fidelity gap của việc thiếu RRB là có thật và effect còn giữ nguyên
+  (thậm chí mạnh hơn) trên multi-object COCO so với VOC12 trong paper gốc.
+- **Group A gần bão hòa**: fcos 0.955, deformable_detr 0.959 — RRB đẩy in-family transfer
+  gần trần (≈WB).
+- **DINO-Swin-L vẫn là target khó nhất** nhưng đã cải thiện đáng kể (0.110→0.236, +115%
+  tương đối) — RRB thu hẹp gap cross-family paradigm nhiều hơn bất kỳ kỹ thuật nào đã thử.
+- **WB gần như bão hòa** (0.980) — RRB không đánh đổi whitebox để lấy transfer, ngược với
+  E3c (dual surrogate) từng đánh đổi WB rất nặng.
+
+---
+
+## So sánh E1c vs E2b / E3a (RRB alone vs RaPA/low-freq stack)
+
+| | E2b (RaPA+OSFD, no RRB) | **E3a (E2b+low-freq, "best single" cũ)** | **E1c (OSFD+RRB, no RaPA)** |
+|---|---|---|---|
+| **WB-ASR** | 0.907 | **0.987** | 0.980 |
+| [A] fcos_r50 | 0.688 | 0.932 | **0.955** |
+| [A] deformable_detr | 0.868 | **0.965** | 0.959 |
+| [B] yolov3_d53 | 0.310 | 0.544 | **0.708** |
+| [B] yolox_l | 0.272 | 0.508 | **0.674** |
+| [C] mask_rcnn_swin_t | 0.263 | 0.485 | **0.663** |
+| [C] dino_swin_l | 0.098 | 0.149 | **0.236** |
+
+**Finding quan trọng nhất trong Nhóm 1:** E1c (chỉ OSFD+RRB, **không có RaPA pruning, không
+có low-freq filter**) thắng E3a — combo tốt nhất từng ghi nhận cho tới nay — trên **5/7
+metric**, và thắng đậm trên đúng nhóm khó nhất (Group B/C: +0.16 đến +0.19 ASR). E3a chỉ
+nhỉnh hơn chút ở WB (+0.007) và deformable_detr (+0.006), chênh lệch trong biên độ nhiễu
+100 ảnh.
+
+> ⚠ **Cần làm trước khi viết kết luận "E3a là best":**
+> 1. RRB (E1c) một mình đã vượt cả stack RaPA+low-freq (E3a) — nghĩa là phần lớn "improvement"
+>    trong E2b/E3a có thể đã bị OSFD-no-RRB đánh giá thấp tiềm năng, và RaPA+low-freq đang
+>    cố bù đắp cho một baseline (E1b) yếu hơn baseline thật sự nên có (E1c).
+> 2. Cần chạy **E1c + RaPA (rate=0.05)** và **E1c + low-freq** để biết RaPA/low-freq có còn
+>    cộng thêm gì *trên nền RRB* hay không (giống logic E1b→E2b nhưng đổi nền OSFD→OSFD+RRB).
+>    Nhiều khả năng RRB và low-freq filter (E3a) đang giải quyết cùng một overfit-texture
+>    problem (đã nêu trong ghi chú gốc của E1c) → có thể không cộng dồn, giống case E4
+>    (E3a+E3b không cộng hưởng).
+> 3. Cho tới khi có các ô đó, **baseline chính nên tạm coi là E1c (OSFD+RRB, no pruning)**,
+>    không phải E3a — vì E1c đơn giản hơn (không cần RaPA/low-freq) mà kết quả tương đương
+>    hoặc tốt hơn trên phần lớn targets.
 
 ---
 
