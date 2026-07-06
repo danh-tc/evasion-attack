@@ -1,8 +1,15 @@
-"""Temporary random weight pruning for attack diversity (RaPA-style).
+"""Temporary random weight pruning for attack diversity (RaPA-style DropConnect).
 
 Default targets Normalization + Linear layers, matching the RaPA paper
 (Su et al. CVPR 2026): BatchNorm/LayerNorm parameters are most effective
 for improving adversarial transferability over Conv layers.
+
+Masking follows RaPA Eq. 5-6 exactly: independent per-element Bernoulli(1-p)
+masks are drawn for BOTH weight and bias (the normalization layer's
+"transformation parameters", or a linear layer's weight+bias), not just
+weight. This matches the reference implementation in
+RaPA/core/attacker/DropConnect.py, which masks module.weight.data and
+module.bias.data independently.
 """
 
 from __future__ import annotations
@@ -12,7 +19,6 @@ from collections.abc import Iterator
 
 import torch
 from torch import nn
-from torch.nn.utils import prune
 
 
 _TYPE_MAP: dict[str, tuple[type, ...]] = {
@@ -27,7 +33,7 @@ def eligible_modules(
     scope: str = "all",
     type_list: list[str] | None = None,
 ) -> list[tuple[str, nn.Module]]:
-    """Return (name, module) pairs eligible for random unstructured pruning.
+    """Return (name, module) pairs eligible for random parameter pruning (DropConnect).
 
     Args:
         scope:     Module name prefix, e.g. "backbone". "all" disables filtering.
@@ -66,7 +72,12 @@ def temporary_random_pruning(
     seed: int = 0,
     type_list: list[str] | None = None,
 ) -> Iterator[int]:
-    """Apply random unstructured masks, then restore exact original weights.
+    """Apply independent Bernoulli(1-amount) masks to weight AND bias, then restore.
+
+    Per RaPA Eq. 5-6: Mw ~ Bernoulli(1-p), Mb ~ Bernoulli(1-p), each entry
+    independently sampled and applied elementwise (WM = Mw ⊙ W). A fresh
+    mask is drawn on every call (i.e. every forward pass), matching "The
+    random masks ... are re-generated for each inference."
 
     The context manager ensures loss.backward() executes while masks are active,
     so gradients w.r.t. the input image correctly reflect the pruned model.
@@ -85,16 +96,28 @@ def temporary_random_pruning(
     cuda_devices = sorted(
         {m.weight.device.index for _, m in modules if m.weight.is_cuda}
     )
+
+    saved: list[tuple[nn.Module, torch.Tensor, torch.Tensor | None]] = []
     with torch.random.fork_rng(devices=cuda_devices):
         torch.manual_seed(seed)
-        for _, module in modules:
-            prune.random_unstructured(module, name="weight", amount=amount)
+        with torch.no_grad():
+            for _, module in modules:
+                w_orig = module.weight.detach().clone()
+                b_orig = module.bias.detach().clone() if module.bias is not None else None
+                saved.append((module, w_orig, b_orig))
+
+                mask_w = torch.bernoulli(torch.full_like(module.weight, 1.0 - amount))
+                module.weight.mul_(mask_w)
+
+                if module.bias is not None:
+                    mask_b = torch.bernoulli(torch.full_like(module.bias, 1.0 - amount))
+                    module.bias.mul_(mask_b)
 
     try:
         yield len(modules)
     finally:
         with torch.no_grad():
-            for _, module in modules:
-                orig = module.weight_orig.detach().clone()
-                prune.remove(module, "weight")
-                module.weight.copy_(orig)
+            for module, w_orig, b_orig in saved:
+                module.weight.copy_(w_orig)
+                if b_orig is not None:
+                    module.bias.copy_(b_orig)

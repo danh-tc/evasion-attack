@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
+from torchvision.transforms.functional import rotate as tvf_rotate
 
 from .pruning import temporary_random_pruning
 
@@ -17,6 +18,12 @@ _STD     = np.array([58.395,  57.12,  57.375], dtype=np.float32)
 _MEAN_T  = torch.from_numpy(_MEAN).view(1, 3, 1, 1)
 _STD_T   = torch.from_numpy(_STD).view(1, 3, 1, 1)
 _STD_AVG = float(_STD.mean())   # ≈ 57.6, for pixel → normalised conversion
+
+# Valid pixel range [0, 255] expressed in normalised space, per channel
+# (used by RRB's pad/clamp steps, which operate on raw pixel bounds in the
+# original OSFD implementation).
+_PIXEL_LO_T = torch.from_numpy((0.0 - _MEAN) / _STD).view(1, 3, 1, 1)
+_PIXEL_HI_T = torch.from_numpy((255.0 - _MEAN) / _STD).view(1, 3, 1, 1)
 
 
 # ── Attack configuration ───────────────────────────────────────────────────────
@@ -50,6 +57,15 @@ class AttackConfig:
     # E3b — patch masking (zero random patches before feature extraction)
     patch_mask_size:  int = 0    # patch side length in pixels; 0 = disabled
     patch_mask_count: int = 4    # number of patches to zero per forward pass
+
+    # E1c — RRB augmentation (OSFD's T(.): Rotation, Resizing, Blur)
+    # Defaults per Ding et al. AAAI24 "Parameters" section / attack_faster_rcnn.yaml
+    rrb_enabled:  bool  = False
+    rrb_theta:    float = 7.0    # max rotation angle, degrees
+    rrb_l_s:      int   = 10     # rotation-axis jitter around box/image center, px
+    rrb_rho:      float = 0.8    # resize aggressiveness relative to object size
+    rrb_s_max:    float = 1.10   # max resize scale factor
+    rrb_sigma_px: float = 6.0    # Gaussian noise std ("blur" in the paper), pixel units
 
 
 # ── Image I/O ─────────────────────────────────────────────────────────────────
@@ -159,6 +175,121 @@ def patch_mask_image(
     return img_t * mask
 
 
+# ── E1c: RRB augmentation (OSFD's T(.)) ──────────────────────────────────────
+
+def _rrb_rotate(
+    img_t: torch.Tensor,
+    gt_boxes: torch.Tensor | None,
+    theta: float,
+    l_s: int,
+    seed: int,
+) -> torch.Tensor:
+    """Random axis rotation: rotate around a randomly chosen GT-box center
+    (jittered by ±l_s px) or the image center if no boxes are available.
+    """
+    H, W = img_t.shape[-2], img_t.shape[-1]
+    rng = torch.Generator(device="cpu")
+    rng.manual_seed(seed)
+
+    centers = [(W / 2.0, H / 2.0)]
+    if gt_boxes is not None and gt_boxes.numel() > 0:
+        cx = ((gt_boxes[:, 0] + gt_boxes[:, 2]) / 2.0).tolist()
+        cy = ((gt_boxes[:, 1] + gt_boxes[:, 3]) / 2.0).tolist()
+        centers += list(zip(cx, cy))
+
+    idx    = int(torch.randint(0, len(centers), (1,), generator=rng).item())
+    cx, cy = centers[idx]
+    if l_s > 0:
+        cx += int(torch.randint(-l_s, l_s + 1, (1,), generator=rng).item())
+        cy += int(torch.randint(-l_s, l_s + 1, (1,), generator=rng).item())
+    cx = float(min(max(cx, 0), W - 1))
+    cy = float(min(max(cy, 0), H - 1))
+
+    angle = float(torch.empty(1).uniform_(-theta, theta, generator=rng).item())
+    return tvf_rotate(img_t, angle, center=[cx, cy], fill=0.0)
+
+
+def _rrb_resize(
+    img_t: torch.Tensor,
+    gt_boxes: torch.Tensor | None,
+    rho: float,
+    s_max: float,
+    seed: int,
+) -> torch.Tensor:
+    """Adaptive random resizing: scale+pad relative to a randomly chosen GT
+    box's size, then resize back to the original resolution. No-op if no
+    boxes are available (paper's formulation requires a reference box).
+    """
+    if gt_boxes is None or gt_boxes.numel() == 0:
+        return img_t
+
+    H, W = img_t.shape[-2], img_t.shape[-1]
+    rng  = torch.Generator(device="cpu")
+    rng.manual_seed(seed)
+
+    idx   = int(torch.randint(0, gt_boxes.shape[0], (1,), generator=rng).item())
+    box   = gt_boxes[idx]
+    box_w = float((box[2] - box[0]).item())
+    box_h = float((box[3] - box[1]).item())
+
+    scale_h = min(1.0 + rho * (box_h / H), s_max)
+    scale_w = min(1.0 + rho * (box_w / W), s_max)
+    max_h, max_w = int(scale_h * H), int(scale_w * W)
+    new_h = int(torch.randint(H, max_h + 1, (1,), generator=rng).item())
+    new_w = int(torch.randint(W, max_w + 1, (1,), generator=rng).item())
+
+    rescaled = F.interpolate(img_t, size=(new_h, new_w), mode="bilinear", align_corners=True)
+    rem_h, rem_w = max_h - new_h, max_w - new_w
+    pad_top  = int(torch.randint(0, rem_h + 1, (1,), generator=rng).item()) if rem_h > 0 else 0
+    pad_left = int(torch.randint(0, rem_w + 1, (1,), generator=rng).item()) if rem_w > 0 else 0
+    # Pad with normalised-zero (≈ mean pixel) rather than raw-pixel-zero
+    # (black), avoiding an artificial dark border that could skew the
+    # surrogate's BatchNorm statistics; a deliberate simplification of the
+    # original pixel-space implementation.
+    padded = F.pad(rescaled, (pad_left, rem_w - pad_left, pad_top, rem_h - pad_top),
+                    mode="constant", value=0.0)
+    return F.interpolate(padded, size=(H, W), mode="bilinear", align_corners=True)
+
+
+def _rrb_noise(img_t: torch.Tensor, sigma_norm: float, seed: int) -> torch.Tensor:
+    """Additive Gaussian noise (the paper calls this 'Gaussian blur', but its
+    own reference implementation is elementwise noise, not a spatial blur
+    kernel), clamped to the valid normalised pixel range.
+    """
+    g = torch.Generator(device="cpu")
+    g.manual_seed(seed)
+    noise = torch.randn(img_t.shape, generator=g).to(img_t.device, img_t.dtype)
+    out   = img_t + sigma_norm * noise
+    lo, hi = _PIXEL_LO_T.to(img_t.device), _PIXEL_HI_T.to(img_t.device)
+    return torch.max(torch.min(out, hi), lo)
+
+
+def rrb_augment(
+    img_t: torch.Tensor,
+    gt_boxes: torch.Tensor | None,
+    cfg: "AttackConfig",
+    seed: int,
+) -> torch.Tensor:
+    """OSFD's RRB augmentation T(.) (Ding et al. AAAI24): rotate around an
+    object-centred axis, adaptively resize relative to object scale, then
+    add Gaussian noise. Sequential composition (rotate -> resize -> noise)
+    matches the reference implementation, which applies rotation then
+    resizing to the same evolving tensor before blurring
+    (OSFD/attack/base/RRB.py::preprocess_data).
+
+    Simplification: the reference code additionally concatenates a
+    rotate-only view with this rotate+resize view into one mini-batch each
+    step; here a single composed view is sampled per forward pass instead,
+    since the n_masks/n_iters loop already performs many independent
+    stochastic passes whose gradients are averaged — equivalent diversity
+    without needing an explicit doubled batch.
+    """
+    out = _rrb_rotate(img_t, gt_boxes, cfg.rrb_theta, cfg.rrb_l_s, seed)
+    out = _rrb_resize(out, gt_boxes, cfg.rrb_rho, cfg.rrb_s_max, seed + 1)
+    out = _rrb_noise(out, px_to_norm(cfg.rrb_sigma_px), seed + 2)
+    return out
+
+
 # ── PGD loop ──────────────────────────────────────────────────────────────────
 
 def _grad_single_pass(
@@ -168,21 +299,24 @@ def _grad_single_pass(
     cfg: AttackConfig,
     seed: int,
     clean_feats: list[torch.Tensor] | None,
+    gt_boxes: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """One forward-backward pass, optionally with random weight masking.
 
-    E3b patch masking is applied to the input before forward (gradient flows
-    through the mask, zeroing updates in masked regions this step).
-    E3a low-freq filter is applied to the gradient after backward.
+    E1c RRB augmentation and E3b patch masking are applied to the input
+    before forward (gradient flows through both, so the PGD update accounts
+    for their effect). E3a low-freq filter is applied to the gradient after
+    backward.
     """
     x = (img_t + delta).requires_grad_(True)
+    x_fwd = x
     # E3b: zero random patches before feature extraction
-    x_fwd = (
-        patch_mask_image(x, cfg.patch_mask_size, cfg.patch_mask_count,
-                         seed=seed + 300_000)
-        if cfg.patch_mask_size > 0
-        else x
-    )
+    if cfg.patch_mask_size > 0:
+        x_fwd = patch_mask_image(x_fwd, cfg.patch_mask_size, cfg.patch_mask_count,
+                                  seed=seed + 300_000)
+    # E1c: OSFD's RRB augmentation T(.) — rotate, adaptively resize, add noise
+    if cfg.rrb_enabled:
+        x_fwd = rrb_augment(x_fwd, gt_boxes, cfg, seed=seed + 500_000)
     ctx = (
         temporary_random_pruning(
             model, cfg.pruning_rate,
@@ -213,11 +347,17 @@ def pgd_attack(
     img_bgr: np.ndarray,
     cfg: AttackConfig,
     aux_model=None,
+    gt_boxes: np.ndarray | None = None,
 ) -> np.ndarray:
     """MIM-style PGD attack. Inputs and outputs are uint8 BGR HWC numpy arrays.
 
     cfg.aux_model:  Second surrogate for cross-backbone gradient averaging (E3c).
                     Gradients from both models are averaged per mask iteration.
+    gt_boxes:       [N, 4] xyxy GT boxes in img_bgr's pixel coordinate frame.
+                    Only used by E1c's RRB augmentation to pick rotation axes
+                    and a reference box for adaptive resizing; the loss
+                    functions themselves remain label-free. Ignored unless
+                    cfg.rrb_enabled.
     """
     model.eval()
     if aux_model is not None:
@@ -230,6 +370,10 @@ def pgd_attack(
     delta  = torch.empty_like(img_t).uniform_(-eps_n, eps_n)
     g_mom  = torch.zeros_like(img_t)
     n_srcs = 2 if aux_model is not None else 1
+
+    gt_boxes_t = None
+    if cfg.rrb_enabled and gt_boxes is not None and len(gt_boxes) > 0:
+        gt_boxes_t = torch.as_tensor(gt_boxes, dtype=torch.float32, device=device)
 
     # Pre-compute clean backbone features once per image (OSFD only)
     clean_feats = aux_clean_feats = None
@@ -245,11 +389,12 @@ def pgd_attack(
 
         for m in range(cfg.n_masks):
             seed = cfg.seed_base + step * cfg.n_masks + m
-            grad += _grad_single_pass(model, img_t, delta, cfg, seed, clean_feats)
+            grad += _grad_single_pass(model, img_t, delta, cfg, seed, clean_feats, gt_boxes_t)
             if aux_model is not None:
                 # Offset seed space to avoid correlation with primary model masks
                 aux_seed = cfg.seed_base + 100_000 + step * cfg.n_masks + m
-                grad += _grad_single_pass(aux_model, img_t, delta, cfg, aux_seed, aux_clean_feats)
+                grad += _grad_single_pass(aux_model, img_t, delta, cfg, aux_seed,
+                                           aux_clean_feats, gt_boxes_t)
 
         grad  /= cfg.n_masks * n_srcs
         g_norm = grad.abs().mean().clamp_min(1e-12)

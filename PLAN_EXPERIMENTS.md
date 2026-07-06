@@ -60,9 +60,51 @@
 - Script: `python scripts/run_attack.py --loss osfd --k 3.0 --n-masks 1 --rate 0 --n-images 100 --out results/e1b_osfd_baseline.json`
 - Cùng 100 ảnh / ε / iters với E1a, E2b để so sánh trực tiếp
 
+### E1c — OSFD + RRB (bản trung thành đầy đủ theo paper gốc)
+- **Fidelity gap phát hiện được:** pipeline hiện tại (E1b, E2b, E3x) chưa từng implement
+  RRB (Random axis Rotation + adaptive Resizing + gaussian Blur — augmentation `T(·)`
+  trong Eq. 2 OSFD paper). File vendor `OSFD/attack/base/RRB.py` tồn tại nhưng không được
+  dùng ở đâu trong `src/assignment_stable_od`. Theo ablation Table 2 của paper gốc, RRB là
+  thành phần đóng góp lớn nhất cho transferability: mean black-box mAP còn lại giảm từ
+  0.195 ("w/o RRB", tức chính là cấu hình E1b/E2b hiện tại) xuống 0.039 (full OSFD_RRB) —
+  gần 5 lần. Nói cách khác, baseline "OSFD" hiện tại thực chất là ablation yếu nhất của
+  paper gốc, chưa phải bản đầy đủ.
+- Loss: OSFD feature distortion (k=3), giống E1b
+- Augmentation: RRB — rotate quanh tâm GT box (jitter ±10px, góc ±7°) → resize thích ứng
+  theo kích thước box (ρ=0.8, s_max=1.10) → nhiễu Gaussian (σ=6px). Tham số lấy đúng từ
+  `OSFD/config/attack_faster_rcnn.yaml` (khác với default trong class `RRB.py`, đã verify).
+- Pruning: **không** (rate=0) — để so trực tiếp với E1b, tách riêng đóng góp của RRB
+- n_masks: 1
+- Mục tiêu: (1) định lượng gap RRB gây ra trên OD/COCO (paper gốc đo trên VOC12,
+  chưa chắc effect giữ nguyên trên multi-object COCO); (2) nếu RRB cải thiện mạnh, cần cập
+  nhật baseline chính (E2b/E3x) thành OSFD+RRB trước khi làm thêm thực nghiệm mới, vì RRB
+  và E3a (low-freq filter) có thể đang giải quyết cùng một vấn đề (overfit texture/vị trí
+  surrogate) → ranking E3a > E3b > E2b hiện tại có thể đổi khi có RRB.
+- Script: `python scripts/run_attack.py --loss osfd --k 3.0 --n-masks 1 --rate 0 --rrb --n-images 100 --out results/e1c_osfd_rrb.json`
+- Cùng 100 ảnh / ε / iters với E1b để so sánh trực tiếp (E1b → E1c = đóng góp riêng của RRB)
+
 ---
 
 ## Nhóm 2 — Fix RaPA đúng theo gốc
+
+> **Đã sửa 2 lệch kỹ thuật so với `RaPA/core/attacker/DropConnect.py`** (trước khi chạy
+> lại E2a/E2b/E0 với code mới, xem `src/assignment_stable_od/pruning.py`):
+> 1. **Bias không bị mask** — code cũ chỉ prune `weight` (qua `torch.nn.utils.prune`),
+>    bỏ sót `bias`/beta trong khi paper mask cả hai độc lập (Eq. 5-6: `Mw`, `Mb` riêng biệt).
+>    Đã sửa: mask cả weight và bias khi có.
+> 2. **Cơ chế sinh mask sai loại phân phối** — code cũ dùng `prune.random_unstructured`
+>    (chọn đúng `amount×N` phần tử ngẫu nhiên không hoàn lại → fixed count), trong khi
+>    paper dùng Bernoulli độc lập từng phần tử (`Mi ~ Bernoulli(1-p)`, variable count).
+>    Đã sửa: dùng `torch.bernoulli` trực tiếp, khớp Eq. 5.
+> - **Lưu ý còn tồn tại (chưa sửa, ghi nhận làm giới hạn):** với surrogate Faster R-CNN
+>   R50-FPN, backbone không có `nn.Linear` nào (FC classification head đã bị bỏ khi dùng
+>   làm backbone detector) → nhánh `type_list=["Normalization","Linear"]` trên thực tế chỉ
+>   từng prune BatchNorm2d, chưa bao giờ chạm Linear. Tức toàn bộ E0-E4 là "RaPA (BN-only)",
+>   không phải "RaPA (BN+FC)" đầy đủ như paper khuyến nghị. Theo Table 5 của paper gốc,
+>   BN-only (72.1%) ≈ BN+FC (72.4%) trên ResNet-50 nên gap có thể nhỏ, nhưng cần nêu rõ
+>   trong phần method/limitation.
+> - **Cần chạy lại E0 sweep sau khi sửa** để xác nhận sweet-spot rate=0.05 còn giữ nguyên
+>   với cơ chế Bernoulli mới (khả năng cao vẫn giữ vì thay đổi là nhỏ, nhưng chưa verify).
 
 ### E2a — RaPA (Norm pruning) + RPN loss
 - Loss: RPN suppression
@@ -132,16 +174,26 @@ E3x → E4:    Combination tốt nhất là gì?
 
 ## Status
 
-- [x] E0  — Hyperparameter sweep (rate × n_masks) — **DONE** `results/e0_sweep.json`
+> ⚠ **Toàn bộ kết quả pruning (E0, E2a, E2b, E3x, E4) bên dưới được chạy với cơ chế
+> mask cũ** (`prune.random_unstructured`, chỉ mask weight, không mask bias — xem ghi chú
+> ở Nhóm 2). Sau khi sửa sang Bernoulli đúng Eq. 5-6 + mask cả bias, **nên chạy lại tối
+> thiểu E0 (sweep nhanh 20 ảnh) để xác nhận sweet-spot rate=0.05/n_masks=2 vẫn đứng vững**
+> trước khi tin tưởng tuyệt đối các con số E2a/E2b/E3x hiện có. Khả năng cao thay đổi nhỏ
+> (chỉ thêm bias-masking + đổi generative process của mask) không đảo ngược ranking, nhưng
+> chưa verify.
+
+- [x] E0  — Hyperparameter sweep (rate × n_masks) — **DONE** `results/e0_sweep.json` (⚠ mask cũ, xem trên)
 - [x] E1a — PGD baseline — **DONE** `results/e1a_pgd.json`
 - [ ] E1b — OSFD baseline (no pruning) — **TODO**, tách đóng góp OSFD vs RaPA (script đã sẵn sàng)
-- [x] E2a — RaPA (Norm) + RPN — **DONE** `results/e2a_rapa_rpn.json`
-- [x] E2b — RaPA (Norm) + OSFD k=3 — **DONE** `results/e2b_rapa_osfd.json`
-- [x] E3a — E2b + Low-frequency (keep=0.5) — **DONE** `results/e3a_lowfreq05.json` ← **BEST SINGLE**
-- [x] E3b — E2b + Patch-masking (32×4) — **DONE** `results/e3b_patch32x4.json` (positive, weaker than E3a)
-- [x] E3c — E2b + Dual surrogate — **DONE** `results/e3c_dual.json` (negative result)
-- [x] E3a-sweep — E3a với keep_ratio=0.3 — **DONE** `results/e3a_lowfreq03.json`
-- [x] E4  — E3a + E3b stack — **DONE** `results/e4_stack.json` (negative: patch không cộng hưởng với low-freq)
+- [ ] E1c — OSFD + RRB (bản trung thành đầy đủ) — **TODO**, code vừa implement xong,
+      chưa chạy — xem Nhóm 1. Nên chạy trước E1b hoặc song song, vì có thể đổi baseline chính.
+- [x] E2a — RaPA (Norm) + RPN — **DONE** `results/e2a_rapa_rpn.json` (⚠ mask cũ, xem trên)
+- [x] E2b — RaPA (Norm) + OSFD k=3 — **DONE** `results/e2b_rapa_osfd.json` (⚠ mask cũ, xem trên)
+- [x] E3a — E2b + Low-frequency (keep=0.5) — **DONE** `results/e3a_lowfreq05.json` ← **BEST SINGLE** (⚠ mask cũ)
+- [x] E3b — E2b + Patch-masking (32×4) — **DONE** `results/e3b_patch32x4.json` (positive, weaker than E3a) (⚠ mask cũ)
+- [x] E3c — E2b + Dual surrogate — **DONE** `results/e3c_dual.json` (negative result) (⚠ mask cũ)
+- [x] E3a-sweep — E3a với keep_ratio=0.3 — **DONE** `results/e3a_lowfreq03.json` (⚠ mask cũ)
+- [x] E4  — E3a + E3b stack — **DONE** `results/e4_stack.json` (negative: patch không cộng hưởng với low-freq) (⚠ mask cũ)
 
 ## E0 Results (20 ảnh, 40 iters, OSFD k=3, scope=backbone, prune=Norm)
 

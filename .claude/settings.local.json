@@ -41,7 +41,16 @@
       "Bash(find /workspace -name \"python3\" -o -name \"python\" 2>/dev/null | head -10 && find /home -name \"activate\" 2>/dev/null | head -5)",
       "Read(//home/**)",
       "Bash(pip3 show *)",
-      "Bash(python3 -c \"import mmdet\")"
+      "Bash(python3 -c \"import mmdet\")",
+      "Bash(xargs grep -liE \"prune|rapa|mask\")",
+      "Bash(find . -maxdepth 3 -iname \"*.venv*\" -o -maxdepth 3 -iname \"venv\")",
+      "Bash(find . -maxdepth 2 -iname \"pyproject.toml\" -o -iname \"requirements*.txt\")",
+      "Bash(python -c \"import sys; print\\(sys.executable\\)\")",
+      "Bash(where python *)",
+      "Bash(where python3 *)",
+      "Read(//c/Users/DanhTran/**)",
+      "Bash(python -m py_compile src/assignment_stable_od/attack.py src/assignment_stable_od/pruning.py scripts/run_attack.py)",
+      "Bash(python -c \"import torch, torchvision; print\\(torch.__version__, torchvision.__version__\\)\")"
     ],
     "additionalDirectories": [
       "/workspace/evasion-venv"

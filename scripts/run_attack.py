@@ -27,6 +27,11 @@ Usage examples (all use --n-images 100 to match the published results files):
         --aux-config checkpoints/mask-rcnn_swin-t-p4-w7_fpn_1x_coco.py \
         --aux-ckpt   checkpoints/mask_rcnn_swin-t-p4-w7_fpn_1x_coco_20210902_120937-9d6b7cfa.pth \
         --out results/e3c_dual.json
+
+    # E1c — OSFD + RRB (paper-faithful "OSFD_RRB", no pruning) — isolates RRB's
+    # own contribution before it's combined with RaPA
+    python scripts/run_attack.py --loss osfd --k 3.0 --n-masks 1 --rate 0 --rrb --n-images 100 \
+        --out results/e1c_osfd_rrb.json
 """
 from __future__ import annotations
 
@@ -315,7 +320,18 @@ def run_attack_loop(
         img_orig = cv2.imread(str(img_path))
         img_bgr  = load_image_bgr(img_path)
 
-        img_adv_r = pgd_attack(surrogate, img_bgr, cfg, aux_model=aux_surrogate)
+        gt_boxes_resized = None
+        if cfg.rrb_enabled:
+            gt_sur, _ = gt_for_image(coco_gt, img_id, sur_cat_map)
+            if gt_sur is not None:
+                h_orig, w_orig = img_orig.shape[:2]
+                h_res,  w_res  = img_bgr.shape[:2]
+                sx, sy = w_res / w_orig, h_res / h_orig
+                scale  = torch.tensor([sx, sy, sx, sy], device=gt_sur.device)
+                gt_boxes_resized = (gt_sur * scale).cpu().numpy()
+
+        img_adv_r = pgd_attack(surrogate, img_bgr, cfg, aux_model=aux_surrogate,
+                                gt_boxes=gt_boxes_resized)
         img_adv   = adversarial_at_orig_scale(img_adv_r, img_bgr, img_orig)
 
         wb, trf_asr, adv_records = eval_one_image(
@@ -376,6 +392,8 @@ def parse_args():
                    help="E3b: patch side length in pixels to mask. 0 = disabled.")
     p.add_argument("--patch-mask-count", type=int,  default=4,
                    help="E3b: number of patches to mask per forward pass.")
+    p.add_argument("--rrb", action="store_true",
+                   help="E1c: enable OSFD's RRB augmentation (rotate+resize+noise, paper defaults).")
     p.add_argument("--out",        type=Path,  default=Path("results/attack_result.json"))
     return p.parse_args()
 
@@ -404,6 +422,7 @@ def main():
         low_freq_keep=args.low_freq_keep,
         patch_mask_size=args.patch_mask_size,
         patch_mask_count=args.patch_mask_count,
+        rrb_enabled=args.rrb,
     )
 
     print("Loading surrogate...")
@@ -442,6 +461,9 @@ def main():
         print(f"E3a       : low_freq_keep={cfg.low_freq_keep}")
     if cfg.patch_mask_size > 0:
         print(f"E3b       : patch_mask_size={cfg.patch_mask_size}px  count={cfg.patch_mask_count}")
+    if cfg.rrb_enabled:
+        print(f"E1c       : RRB enabled  theta={cfg.rrb_theta}  l_s={cfg.rrb_l_s}"
+              f"  rho={cfg.rrb_rho}  s_max={cfg.rrb_s_max}  sigma={cfg.rrb_sigma_px}px")
 
     bar_fmt = "{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]"
 
@@ -519,6 +541,7 @@ def main():
             "low_freq_keep":   cfg.low_freq_keep,
             "patch_mask_size": cfg.patch_mask_size,
             "patch_mask_count": cfg.patch_mask_count,
+            "rrb_enabled":     cfg.rrb_enabled,
         },
         "clean_mAP":    clean_map,
         "adv_mAP":      adv_map,
