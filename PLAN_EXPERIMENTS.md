@@ -112,11 +112,18 @@
 - n_masks: 2, rate: 0.05
 - So sánh với E1a: kiểm tra xem Norm pruning có giúp RPN loss không
 
-### E2b — RaPA (Norm pruning) + OSFD (k=3)  ← improved baseline chính
+### E2b — RaPA (Norm pruning) + OSFD (k=3)
 - Loss: `MSE(k·f_clean, f_adv)` với **k=3**, maximize, tất cả backbone stages
 - Pruning: **BatchNorm2d + LayerNorm**, n_masks=2, rate=0.05
 - So sánh với E2a: feature distortion vs RPN suppression
 - So sánh với E1a: full improvement stack
+
+### E2c — RaPA (Norm pruning) + OSFD + RRB  ← **new best combo, thay thế E2b làm baseline chính**
+- Tất cả như E2b, cộng thêm RRB augmentation của E1c (`--rrb`)
+- Mục tiêu: trả lời câu hỏi treo ở E1c — RaPA có còn cộng thêm gì *trên nền RRB* không,
+  hay hai kỹ thuật giải quyết trùng vấn đề (overfit-texture) như nghi ngờ ban đầu
+- Script: `python scripts/run_attack.py --loss osfd --k 3.0 --prune-types norm --n-masks 2 --rate 0.05 --rrb --n-images 100 --out results/e1c_rapa_osfd_rrb.json`
+- **Kết quả: RaPA CỘNG DỒN với RRB (không trùng lặp)** — xem "So sánh E1c vs E2c/E3a" bên dưới
 
 ---
 
@@ -193,8 +200,10 @@ E3x → E4:    Combination tốt nhất là gì?
 - [x] E1c — OSFD + RRB (bản trung thành đầy đủ) — **DONE** `results/e1c_osfd_rrb.json`
       — **RRB thắng áp đảo**, vượt cả stack RaPA+low-freq (E3a) trên Group B/C, xem chi tiết
       ở "E1a/E1b/E1c Results" bên dưới. Không dùng pruning (rate=0) nên **không dính lỗi
-      mask cũ** ở Nhóm 2. **⚠ Cần chạy thêm E1c+RaPA và E1c+low-freq trước khi chốt E3a là
-      best combo — xem cảnh báo trong phần "So sánh E1c vs E2b/E3a" bên dưới.**
+      mask cũ** ở Nhóm 2.
+- [x] E2c — RaPA (Norm) + OSFD + RRB — **DONE** `results/e1c_rapa_osfd_rrb.json` —
+      **RaPA cộng dồn với RRB (không trùng lặp)** → **best combo mới**, thay E2b/E3a làm
+      baseline chính. Xem "Update sau khi chạy E2c". TODO tiếp: E2c + low-freq.
 - [x] E2a — RaPA (Norm) + RPN — **DONE** `results/e2a_rapa_rpn.json` (⚠ mask cũ, xem trên)
 - [x] E2b — RaPA (Norm) + OSFD k=3 — **DONE** `results/e2b_rapa_osfd.json` (⚠ mask cũ, xem trên)
 - [x] E3a — E2b + Low-frequency (keep=0.5) — **DONE** `results/e3a_lowfreq05.json` ← **BEST SINGLE** (⚠ mask cũ)
@@ -280,6 +289,9 @@ E3x → E4:    Combination tốt nhất là gì?
 
 ## So sánh E1c vs E2b / E3a (RRB alone vs RaPA/low-freq stack)
 
+> Xem thêm bảng cập nhật "Update sau khi chạy E2c" ngay dưới phần Findings — đã verify
+> RaPA cộng dồn với RRB, E2c (RaPA+OSFD+RRB) là best combo mới.
+
 | | E2b (RaPA+OSFD, no RRB) | **E3a (E2b+low-freq, "best single" cũ)** | **E1c (OSFD+RRB, no RaPA)** |
 |---|---|---|---|
 | **WB-ASR** | 0.907 | **0.987** | 0.980 |
@@ -296,18 +308,31 @@ metric**, và thắng đậm trên đúng nhóm khó nhất (Group B/C: +0.16 đ
 nhỉnh hơn chút ở WB (+0.007) và deformable_detr (+0.006), chênh lệch trong biên độ nhiễu
 100 ảnh.
 
-> ⚠ **Cần làm trước khi viết kết luận "E3a là best":**
-> 1. RRB (E1c) một mình đã vượt cả stack RaPA+low-freq (E3a) — nghĩa là phần lớn "improvement"
->    trong E2b/E3a có thể đã bị OSFD-no-RRB đánh giá thấp tiềm năng, và RaPA+low-freq đang
->    cố bù đắp cho một baseline (E1b) yếu hơn baseline thật sự nên có (E1c).
-> 2. Cần chạy **E1c + RaPA (rate=0.05)** và **E1c + low-freq** để biết RaPA/low-freq có còn
->    cộng thêm gì *trên nền RRB* hay không (giống logic E1b→E2b nhưng đổi nền OSFD→OSFD+RRB).
->    Nhiều khả năng RRB và low-freq filter (E3a) đang giải quyết cùng một overfit-texture
->    problem (đã nêu trong ghi chú gốc của E1c) → có thể không cộng dồn, giống case E4
->    (E3a+E3b không cộng hưởng).
-> 3. Cho tới khi có các ô đó, **baseline chính nên tạm coi là E1c (OSFD+RRB, no pruning)**,
->    không phải E3a — vì E1c đơn giản hơn (không cần RaPA/low-freq) mà kết quả tương đương
->    hoặc tốt hơn trên phần lớn targets.
+### Update sau khi chạy E2c (RaPA + OSFD + RRB) — đã trả lời cảnh báo ở trên
+
+| | E2b (RaPA, no RRB) | E3a (RaPA+low-freq, no RRB) | E1c (RRB, no RaPA) | **E2c (RaPA+RRB)** |
+|---|---|---|---|---|
+| **WB-ASR** | 0.907 | 0.987 | 0.980 | **0.983** |
+| [A] fcos_r50 | 0.688 | 0.932 | 0.955 | **0.967** |
+| [A] deformable_detr | 0.868 | 0.965 | 0.959 | **0.971** |
+| [B] yolov3_d53 | 0.310 | 0.544 | 0.708 | **0.853** |
+| [B] yolox_l | 0.272 | 0.508 | 0.674 | **0.731** |
+| [C] mask_rcnn_swin_t | 0.263 | 0.485 | 0.663 | **0.803** |
+| [C] dino_swin_l | 0.098 | 0.149 | 0.236 | **0.296** |
+
+**Findings:**
+- **RaPA cộng dồn với RRB — KHÔNG trùng lặp** (trái với nghi ngờ ban đầu rằng RRB và
+  low-freq/RaPA giải quyết cùng vấn đề overfit-texture). E2c thắng E1c trên **7/7 metric**:
+  yolov3 +0.145, swin_t +0.140, dino_swin_l +0.060, yolox +0.057, Group A +0.01–0.012.
+  Đây là cặp kỹ thuật cộng hưởng thật sự — khác hẳn case E4 (low-freq + patch-masking
+  không cộng hưởng).
+- **E2c là best combo mới, vượt xa E3a trên toàn bộ Group B/C**: yolov3 +0.309,
+  yolox +0.223, swin_t +0.318, dino_swin_l +0.147 so với E3a. Chỉ thua nhẹ ở WB (-0.004,
+  nhiễu). E3a (low-freq, không RRB) giờ bị E2c bỏ xa, không còn là best single nữa.
+- **→ Baseline chính mới = E2c (RaPA + OSFD + RRB)**, thay cho E2b/E3a.
+- **TODO tiếp theo:** thử **E2c + low-freq** (E3a's low-pass filter chồng lên E2c) để xem
+  còn cộng thêm gì trên nền đã có cả RaPA lẫn RRB không — vì giờ 2/3 kỹ thuật đã proven
+  cộng dồn, khả năng cộng dồn tiếp là hợp lý, nhưng cần verify (không suy diễn).
 
 ---
 
