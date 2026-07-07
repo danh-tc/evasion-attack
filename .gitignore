@@ -7,6 +7,8 @@ __pycache__/
 checkpoints/
 data/
 logs/
+results/
+*.egg-info/
 environment_locked.yml
 requirements_locked.txt
 

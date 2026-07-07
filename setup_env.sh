@@ -156,12 +156,9 @@ echo ""
 echo "===== Installing local package ====="
 pip install --no-cache-dir -e "$PROJECT_DIR"
 
-# ── 12. check_env ─────────────────────────────────────────────────────────────
-echo ""
-echo "===== Running check_env.py ====="
-python "$PROJECT_DIR/scripts/check_env.py"
-
-# ── 13. Download all model checkpoints ───────────────────────────────────────
+# ── 12. Download all model checkpoints ───────────────────────────────────────
+# Must run BEFORE check_env: check_env.py's smoke test loads the surrogate
+# checkpoint to exercise the real attack graph, not just import-check.
 echo ""
 echo "===== Downloading model checkpoints ====="
 CKPT_DIR="$PROJECT_DIR/checkpoints"
@@ -198,6 +195,11 @@ download_ckpt retinanet_r101_fpn_1x_coco            "retinanet_r101_fpn_1x_coco_
 download_ckpt dino-4scale_r50_8xb2-12e_coco         "dino-4scale_r50_8xb2-12e_coco_20221202_182705-55b2bba2.pth"
 
 echo "All checkpoints done."
+
+# ── 13. check_env ─────────────────────────────────────────────────────────────
+echo ""
+echo "===== Running check_env.py ====="
+python "$PROJECT_DIR/scripts/check_env.py"
 
 # ── 14. Download COCO val2017 dataset ────────────────────────────────────────
 echo ""
@@ -270,6 +272,6 @@ echo ""
 echo "===== DONE ====="
 echo "Activate with: source $VENV_DIR/bin/activate"
 echo "Project dir:   $PROJECT_DIR"
-echo "Next: python scripts/check_env.py"
+echo "check_env.py already ran in step 13 above — if it passed, next:"
 echo "      python scripts/run_attack.py --n-images 5 --n-iters 5 --out results/smoke.json"
 echo "      python scripts/run_sweep.py --n-images 5 --rates 0.05 --masks 2 --n-iters 5 --out results/e0_smoke.json"
